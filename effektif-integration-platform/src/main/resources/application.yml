@@ -1,0 +1,326 @@
+# Effektif Integration Platform 2.0 Configuration
+# Spring Boot应用配置文件
+
+spring:
+  application:
+    name: effektif-integration-platform
+    version: 2.0.0
+
+  profiles:
+    active: development
+
+  # 数据源配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/effektif_integration?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: effektif
+    password: effektif123
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    
+    # HikariCP连接池配置
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+      leak-detection-threshold: 60000
+
+  # JPA配置
+  jpa:
+    hibernate:
+      ddl-auto: update
+      naming:
+        physical-strategy: org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQL8Dialect
+        format_sql: true
+        use_sql_comments: true
+        jdbc:
+          batch_size: 20
+        order_inserts: true
+        order_updates: true
+
+  # RabbitMQ配置
+  rabbitmq:
+    host: localhost
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    connection-timeout: 15000
+    
+    # 消息监听器配置
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 5000
+          multiplier: 2.0
+          max-interval: 30000
+        acknowledge-mode: manual
+        prefetch: 10
+        concurrency: 5
+        max-concurrency: 10
+
+  # Quartz调度器配置
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: embedded
+    properties:
+      org:
+        quartz:
+          scheduler:
+            instanceName: EffektifIntegrationPlatformScheduler
+            instanceId: AUTO
+          jobStore:
+            class: org.quartz.impl.jdbcjobstore.JobStoreTX
+            driverDelegateClass: org.quartz.impl.jdbcjobstore.StdJDBCDelegate
+            tablePrefix: QRTZ_
+            isClustered: true
+            clusterCheckinInterval: 20000
+            useProperties: false
+          threadPool:
+            class: org.quartz.simpl.SimpleThreadPool
+            threadCount: 10
+            threadPriority: 5
+
+  # Jackson JSON配置
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+      fail-on-empty-beans: false
+    deserialization:
+      fail-on-unknown-properties: false
+    time-zone: Asia/Shanghai
+    date-format: yyyy-MM-dd HH:mm:ss
+
+  # 异步任务配置
+  task:
+    execution:
+      pool:
+        core-size: 8
+        max-size: 32
+        queue-capacity: 1000
+        keep-alive: 60s
+      thread-name-prefix: effektif-async-
+    scheduling:
+      pool:
+        size: 10
+      thread-name-prefix: effektif-scheduled-
+
+  # 安全配置
+  security:
+    user:
+      name: admin
+      password: admin123
+      roles: ADMIN
+
+# 服务器配置
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+  compression:
+    enabled: true
+    mime-types: text/html,text/xml,text/plain,text/css,text/javascript,application/javascript,application/json
+  tomcat:
+    max-threads: 200
+    min-spare-threads: 10
+    max-connections: 8192
+    accept-count: 100
+
+# 管理端点配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: when-authorized
+      show-components: always
+    metrics:
+      enabled: true
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+    tags:
+      application: ${spring.application.name}
+      version: ${spring.application.version}
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.effektif: INFO
+    org.springframework.amqp: WARN
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/effektif-integration-platform.log
+    max-size: 100MB
+    max-history: 30
+
+# Effektif集成平台配置
+effektif:
+  integration:
+    platform:
+      name: "Effektif Integration Platform 2.0"
+      version: "2.0.0"
+      description: "Enterprise-grade workflow integration platform"
+      
+      # 触发器配置
+      triggers:
+        # HTTP触发器配置
+        http:
+          enabled: true
+          base-path: "/webhooks"
+          max-payload-size: 10485760  # 10MB
+          request-timeout: 30
+          signature-verification-enabled: true
+        
+        # 消息队列触发器配置
+        message-queue:
+          enabled: true
+          default-concurrency: 5
+          max-retries: 3
+          retry-interval: 5000
+          deduplication-enabled: false
+        
+        # 定时触发器配置
+        scheduled:
+          enabled: true
+          thread-pool-size: 10
+          persistent-enabled: true
+          cluster-enabled: true
+      
+      # 安全配置
+      security:
+        enabled: true
+        jwt-secret: "effektif-integration-platform-jwt-secret-key-2024"
+        token-expiration: 86400  # 24小时
+        ip-whitelist-enabled: false
+      
+      # 监控配置
+      monitoring:
+        enabled: true
+        metrics-enabled: true
+        health-check-enabled: true
+        audit-log-enabled: true
+      
+      # 工作流引擎配置
+      workflow-engine:
+        instance-cache-size: 1000
+        definition-cache-size: 100
+        async-executor-thread-pool-size: 20
+
+# MongoDB配置（用于Effektif工作流引擎）
+mongodb:
+  host: localhost
+  port: 27017
+  database: effektif
+  username: 
+  password: 
+  connection-timeout: 10000
+  socket-timeout: 0
+  max-pool-size: 100
+  min-pool-size: 0
+
+---
+# 开发环境配置
+spring:
+  config:
+    activate:
+      on-profile: development
+
+  # 开发环境数据源
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: 
+    driver-class-name: org.h2.Driver
+  
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    show-sql: true
+
+logging:
+  level:
+    com.effektif: DEBUG
+    org.springframework.web: DEBUG
+
+---
+# 测试环境配置
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    username: sa
+    password: 
+    driver-class-name: org.h2.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+
+logging:
+  level:
+    root: WARN
+    com.effektif: INFO
+
+---
+# 生产环境配置
+spring:
+  config:
+    activate:
+      on-profile: production
+
+  # 生产环境数据源（从环境变量获取）
+  datasource:
+    url: ${DATABASE_URL:jdbc:mysql://localhost:3306/effektif_integration}
+    username: ${DATABASE_USERNAME:effektif}
+    password: ${DATABASE_PASSWORD:effektif123}
+
+  # 生产环境RabbitMQ配置
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USERNAME:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+
+# 生产环境服务器配置
+server:
+  port: ${SERVER_PORT:8080}
+
+# 生产环境MongoDB配置
+mongodb:
+  host: ${MONGODB_HOST:localhost}
+  port: ${MONGODB_PORT:27017}
+  database: ${MONGODB_DATABASE:effektif}
+  username: ${MONGODB_USERNAME:}
+  password: ${MONGODB_PASSWORD:}
+
+logging:
+  level:
+    root: WARN
+    com.effektif: INFO
+  file:
+    name: /var/log/effektif/integration-platform.log
