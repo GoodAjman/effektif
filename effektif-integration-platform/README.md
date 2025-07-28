@@ -90,7 +90,7 @@
 
 ### 1. 克隆项目
 ```bash
-git clone https://github.com/effektif/effektif.git
+git clone https://github.com/GoodAjman/effektif.git
 cd effektif/effektif-integration-platform
 ```
 
@@ -408,5 +408,5 @@ spec:
 
 - 📧 邮箱: support@effektif.com
 - 📖 文档: https://docs.effektif.com
-- 🐛 问题反馈: https://github.com/effektif/effektif/issues
+- 🐛 问题反馈: https://github.com/GoodAjman/effektif/issues
 - 💬 社区讨论: https://community.effektif.com
