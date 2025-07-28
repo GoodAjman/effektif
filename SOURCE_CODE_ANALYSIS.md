@@ -293,3 +293,233 @@ public class CustomDataType extends AbstractDataType {
 - JMX 监控指标
 - 性能分析工具
 - 日志结构化
+
+## 9. 工作流执行流程详解
+
+### 9.1 工作流部署流程
+```
+1. 客户端调用 deployWorkflow()
+2. WorkflowParser 解析工作流定义
+3. 验证活动类型和流转关系
+4. 生成 WorkflowImpl 内部表示
+5. 存储到 WorkflowStore
+6. 缓存到 WorkflowCache
+7. 注册触发器 (如果存在)
+8. 返回 Deployment 结果
+```
+
+### 9.2 工作流实例启动流程
+```
+1. 客户端调用 start(TriggerInstance)
+2. 根据 workflowId 查找工作流定义
+3. 创建 WorkflowInstanceImpl 对象
+4. 初始化工作流变量
+5. 存储到 WorkflowInstanceStore
+6. 执行起始活动
+7. 返回 WorkflowInstance
+```
+
+### 9.3 消息处理流程
+```
+1. 客户端调用 send(Message)
+2. 锁定工作流实例
+3. 查找目标活动实例
+4. 调用活动的 message() 方法
+5. 活动处理完成后触发流转
+6. 更新工作流实例状态
+7. 解锁并持久化
+8. 返回更新后的实例
+```
+
+## 10. 关键算法分析
+
+### 10.1 流转计算算法
+```java
+public void takeTransition(TransitionImpl transition) {
+    // 1. 评估流转条件
+    if (transition.condition != null) {
+        boolean conditionResult = conditionService.eval(transition.condition, this);
+        if (!conditionResult) {
+            return; // 条件不满足，不执行流转
+        }
+    }
+
+    // 2. 创建目标活动实例
+    ActivityImpl toActivity = transition.to;
+    ActivityInstanceImpl toActivityInstance = createActivityInstance(toActivity);
+
+    // 3. 执行流转
+    workflowInstance.notifyTransitionTaken(this, transition, toActivityInstance);
+
+    // 4. 启动目标活动
+    toActivityInstance.execute();
+}
+```
+
+### 10.2 并行网关合并算法
+```java
+public class ParallelGatewayImpl extends AbstractActivityType<ParallelGateway> {
+    @Override
+    public void execute(ActivityInstanceImpl activityInstance) {
+        // 检查所有输入流转是否都已完成
+        List<TransitionImpl> incomingTransitions = activityInstance.activity.incomingTransitions;
+        boolean allIncomingCompleted = true;
+
+        for (TransitionImpl transition : incomingTransitions) {
+            if (!isTransitionCompleted(transition, activityInstance)) {
+                allIncomingCompleted = false;
+                break;
+            }
+        }
+
+        if (allIncomingCompleted) {
+            // 所有输入都完成，继续执行
+            activityInstance.onwards();
+        } else {
+            // 等待其他分支完成
+            activityInstance.waitForOtherBranches();
+        }
+    }
+}
+```
+
+### 10.3 排他网关选择算法
+```java
+public class ExclusiveGatewayImpl extends AbstractActivityType<ExclusiveGateway> {
+    @Override
+    public void onwards(ActivityInstanceImpl activityInstance) {
+        List<TransitionImpl> outgoingTransitions = activityInstance.activity.outgoingTransitions;
+
+        // 按顺序评估条件
+        for (TransitionImpl transition : outgoingTransitions) {
+            if (transition.condition != null) {
+                boolean conditionResult = conditionService.eval(transition.condition, activityInstance);
+                if (conditionResult) {
+                    activityInstance.takeTransition(transition);
+                    return;
+                }
+            }
+        }
+
+        // 如果没有条件满足，使用默认流转
+        String defaultTransitionId = activityInstance.activity.defaultTransitionId;
+        if (defaultTransitionId != null) {
+            TransitionImpl defaultTransition = findTransitionById(defaultTransitionId);
+            activityInstance.takeTransition(defaultTransition);
+        }
+    }
+}
+```
+
+## 11. 错误处理机制
+
+### 11.1 解析错误处理
+```java
+public class WorkflowParser {
+    private ParseIssues issues = new ParseIssues();
+
+    public void addError(String message, Object... args) {
+        issues.addError(message, args);
+    }
+
+    public void addWarning(String message, Object... args) {
+        issues.addWarning(message, args);
+    }
+
+    public boolean hasErrors() {
+        return issues.hasErrors();
+    }
+}
+```
+
+### 11.2 运行时错误处理
+```java
+public class ActivityInstanceImpl {
+    public void handleException(Exception exception) {
+        // 记录错误信息
+        log.error("Activity execution failed", exception);
+
+        // 查找错误边界事件
+        BoundaryEvent errorBoundary = findErrorBoundaryEvent();
+        if (errorBoundary != null) {
+            // 触发错误处理流程
+            triggerBoundaryEvent(errorBoundary);
+        } else {
+            // 向上传播错误
+            propagateError(exception);
+        }
+    }
+}
+```
+
+## 12. 测试策略
+
+### 12.1 单元测试
+- 每个核心类都有对应的测试类
+- 使用 JUnit 4 框架
+- Mock 外部依赖
+
+### 12.2 集成测试
+- 使用内存配置进行快速测试
+- 测试完整的工作流执行流程
+- 验证不同存储实现的一致性
+
+### 12.3 性能测试
+- 并发执行测试
+- 大量数据测试
+- 内存泄漏检测
+
+## 13. 部署和运维
+
+### 13.1 配置管理
+```java
+// 内存配置 - 适用于开发和测试
+Configuration config = new MemoryConfiguration();
+
+// MongoDB配置 - 适用于生产环境
+MongoConfiguration config = new MongoConfiguration()
+    .server("localhost", 27017)
+    .databaseName("effektif")
+    .authentication("username", "password", "authDB");
+```
+
+### 13.2 监控指标
+- 工作流实例数量
+- 活动执行时间
+- 错误率统计
+- 系统资源使用情况
+
+### 13.3 日志管理
+- 结构化日志输出
+- 不同级别的日志控制
+- 审计日志记录
+
+## 14. 最佳实践建议
+
+### 14.1 工作流设计
+- 保持工作流简单明了
+- 合理使用网关控制流程
+- 避免过深的嵌套结构
+- 定义清晰的变量命名
+
+### 14.2 性能优化
+- 合理设计数据库索引
+- 使用缓存减少数据库访问
+- 异步处理非关键路径
+- 监控和调优系统性能
+
+### 14.3 错误处理
+- 定义明确的错误边界
+- 实现重试机制
+- 记录详细的错误日志
+- 提供友好的错误信息
+
+### 14.4 扩展开发
+- 遵循现有的设计模式
+- 实现完整的测试覆盖
+- 编写清晰的文档
+- 考虑向后兼容性
+
+---
+
+**总结**: Effektif 工作流引擎展示了优秀的架构设计和工程实践，虽然项目已停止维护，但其设计思想和实现方式仍具有很高的学习价值。通过深入分析其源码，我们可以学习到现代工作流引擎的核心技术和最佳实践。

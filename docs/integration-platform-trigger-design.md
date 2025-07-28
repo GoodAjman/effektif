@@ -278,3 +278,1087 @@ CREATE TABLE trigger_execution_log (
     INDEX idx_execution_time (execution_time)
 );
 ```
+
+### 3.3 核心方法描述
+
+#### 3.3.1 HttpTriggerImpl核心方法
+```java
+public class HttpTriggerImpl extends AbstractTriggerImpl<HttpTrigger> {
+
+    /**
+     * 验证HTTP请求的合法性
+     * @param request HTTP请求对象
+     * @return 验证结果
+     */
+    public boolean validateRequest(HttpServletRequest request) {
+        // 验证请求方法
+        // 验证Content-Type
+        // 验证签名
+        // 验证IP白名单
+    }
+
+    /**
+     * 解析HTTP请求数据
+     * @param request HTTP请求对象
+     * @return 解析后的数据Map
+     */
+    public Map<String, Object> parseRequestData(HttpServletRequest request) {
+        // 根据Content-Type解析请求体
+        // 提取请求头信息
+        // 提取查询参数
+    }
+
+    /**
+     * 验证请求签名
+     * @param payload 请求载荷
+     * @param signature 签名
+     * @return 验证结果
+     */
+    public boolean verifySignature(String payload, String signature) {
+        // 使用HMAC-SHA256验证签名
+    }
+}
+```
+
+#### 3.3.2 MessageQueueTriggerImpl核心方法
+```java
+public class MessageQueueTriggerImpl extends AbstractTriggerImpl<MessageQueueTrigger> {
+
+    /**
+     * 开始监听消息队列
+     */
+    public void startListening() {
+        // 创建连接工厂
+        // 创建消息监听器
+        // 绑定队列和交换机
+        // 开始消费消息
+    }
+
+    /**
+     * 停止监听消息队列
+     */
+    public void stopListening() {
+        // 停止消息消费
+        // 关闭连接
+        // 清理资源
+    }
+
+    /**
+     * 处理接收到的消息
+     * @param message 消息对象
+     */
+    public void onMessage(Message message) {
+        // 解析消息内容
+        // 创建TriggerInstance
+        // 启动工作流
+        // 确认消息
+    }
+}
+```
+
+## 4. 核心场景测试用例
+
+### 4.1 功能测试用例
+
+#### 4.1.1 HTTP触发器测试用例
+
+**测试用例1: HTTP POST触发工作流**
+- **前置条件**: 已配置HTTP触发器，关联到测试工作流
+- **测试步骤**:
+  1. 发送POST请求到触发器URL
+  2. 请求体包含JSON数据
+  3. 设置正确的签名头
+- **预期结果**: 工作流成功启动，返回200状态码
+- **验证点**: 工作流实例创建，变量正确设置
+
+**测试用例2: HTTP签名验证失败**
+- **前置条件**: 已配置HTTP触发器，启用签名验证
+- **测试步骤**: 发送请求但签名错误
+- **预期结果**: 返回401未授权状态码
+- **验证点**: 工作流未启动，记录安全日志
+
+#### 4.1.2 消息队列触发器测试用例
+
+**测试用例3: RabbitMQ消息触发工作流**
+- **前置条件**: 已配置RabbitMQ触发器
+- **测试步骤**: 向指定队列发送消息
+- **预期结果**: 工作流成功启动
+- **验证点**: 消息被正确消费，工作流变量设置正确
+
+**测试用例4: 消息处理失败重试**
+- **前置条件**: 已配置消息队列触发器，启用重试机制
+- **测试步骤**: 发送消息，模拟工作流执行失败
+- **预期结果**: 消息进入重试队列，达到最大重试次数后进入死信队列
+- **验证点**: 重试次数正确，死信队列有消息
+
+#### 4.1.3 定时触发器测试用例
+
+**测试用例5: Cron表达式定时触发**
+- **前置条件**: 已配置定时触发器，Cron表达式为每分钟执行
+- **测试步骤**: 等待触发时间到达
+- **预期结果**: 工作流按时启动
+- **验证点**: 触发时间准确，工作流实例创建
+
+### 4.2 压力测试用例
+
+#### 4.2.1 HTTP触发器并发测试
+- **测试目标**: 验证HTTP触发器的并发处理能力
+- **测试方法**: 使用JMeter模拟1000个并发请求
+- **性能指标**:
+  - TPS > 500
+  - 平均响应时间 < 100ms
+  - 错误率 < 0.1%
+- **资源监控**: CPU使用率、内存使用率、数据库连接数
+
+#### 4.2.2 消息队列触发器吞吐量测试
+- **测试目标**: 验证消息队列触发器的消息处理能力
+- **测试方法**: 向队列发送10000条消息
+- **性能指标**:
+  - 消息处理速度 > 1000 msg/s
+  - 消息丢失率 = 0%
+  - 内存使用稳定
+- **资源监控**: 队列深度、消费者线程数、GC频率
+
+#### 4.2.3 定时触发器稳定性测试
+- **测试目标**: 验证定时触发器长期运行的稳定性
+- **测试方法**: 配置多个定时任务，运行24小时
+- **性能指标**:
+  - 触发准确率 > 99.9%
+  - 内存泄漏检测通过
+  - 系统资源使用稳定
+- **资源监控**: 内存使用趋势、线程数变化、定时任务执行日志
+
+### 4.3 集成测试用例
+
+#### 4.3.1 多触发器协同测试
+- **测试场景**: HTTP触发器启动工作流，工作流中包含定时等待，消息队列触发器推进流程
+- **验证点**: 多个触发器能够正确协同工作，数据传递无误
+
+#### 4.3.2 故障恢复测试
+- **测试场景**: 系统重启后，定时触发器和消息队列监听器能够自动恢复
+- **验证点**: 触发器状态正确恢复，未处理的消息能够继续处理
+
+## 5. 技术实现要点
+
+### 5.1 Spring Boot集成
+- 使用Spring Boot Starter自动配置
+- 支持配置文件外部化
+- 集成Spring Security进行安全控制
+- 使用Spring Data JPA进行数据持久化
+
+### 5.2 高可用设计
+- 支持集群部署，避免单点故障
+- 使用分布式锁确保定时任务不重复执行
+- 消息队列支持高可用配置
+- 数据库连接池和读写分离
+
+### 5.3 监控和运维
+- 集成Micrometer进行指标监控
+- 使用ELK Stack进行日志分析
+- 支持健康检查和优雅关闭
+- 提供管理API进行运维操作
+
+### 5.4 安全考虑
+- HTTP触发器支持HTTPS和签名验证
+- 敏感配置信息加密存储
+- 支持IP白名单和访问频率限制
+- 审计日志记录所有关键操作
+
+## 6. 完整的测试用例设计
+
+### 6.1 单元测试用例
+
+#### 6.1.1 HttpTriggerImpl测试用例
+
+**测试类**: `HttpTriggerImplTest`
+
+```java
+@ExtendWith(MockitoExtension.class)
+class HttpTriggerImplTest {
+
+    @Test
+    void testValidateRequest_ValidRequest_ReturnsTrue() {
+        // 测试有效请求验证
+        HttpTrigger trigger = new HttpTrigger()
+            .method("POST")
+            .contentType("application/json")
+            .enableSignatureVerification(false);
+
+        HttpTriggerImpl impl = new HttpTriggerImpl();
+        impl.trigger = trigger;
+
+        HttpServletRequest request = mockValidRequest();
+        assertTrue(impl.validateRequest(request));
+    }
+
+    @Test
+    void testValidateRequest_InvalidMethod_ReturnsFalse() {
+        // 测试无效HTTP方法
+        HttpTrigger trigger = new HttpTrigger().method("POST");
+        HttpTriggerImpl impl = new HttpTriggerImpl();
+        impl.trigger = trigger;
+
+        HttpServletRequest request = mockRequest("GET");
+        assertFalse(impl.validateRequest(request));
+    }
+
+    @Test
+    void testVerifySignature_ValidSignature_ReturnsTrue() {
+        // 测试有效签名验证
+        HttpTrigger trigger = new HttpTrigger()
+            .secretKey("test-secret")
+            .signatureAlgorithm("HmacSHA256");
+
+        HttpTriggerImpl impl = new HttpTriggerImpl();
+        impl.trigger = trigger;
+
+        String payload = "{\"test\": \"data\"}";
+        String signature = generateValidSignature(payload, "test-secret");
+
+        assertTrue(impl.verifySignature(payload, signature));
+    }
+
+    @Test
+    void testParseRequestData_JsonPayload_ParsesCorrectly() {
+        // 测试JSON数据解析
+        HttpServletRequest request = mockJsonRequest();
+        HttpTriggerImpl impl = new HttpTriggerImpl();
+
+        Map<String, Object> data = impl.parseRequestData(request);
+
+        assertNotNull(data);
+        assertEquals("POST", data.get("httpMethod"));
+        assertNotNull(data.get("jsonPayload"));
+        assertNotNull(data.get("headers"));
+    }
+}
+```
+
+#### 6.1.2 MessageQueueTriggerImpl测试用例
+
+**测试类**: `MessageQueueTriggerImplTest`
+
+```java
+@ExtendWith(MockitoExtension.class)
+class MessageQueueTriggerImplTest {
+
+    @Mock
+    private ConnectionFactory connectionFactory;
+
+    @Mock
+    private SimpleMessageListenerContainer listenerContainer;
+
+    @Test
+    void testOnMessage_ValidMessage_ProcessesSuccessfully() {
+        // 测试有效消息处理
+        MessageQueueTrigger trigger = new MessageQueueTrigger()
+            .queueName("test.queue")
+            .messageType("java.lang.String");
+
+        MessageQueueTriggerImpl impl = new MessageQueueTriggerImpl();
+        impl.trigger = trigger;
+
+        Message message = mockMessage("{\"orderId\": \"12345\"}");
+
+        assertDoesNotThrow(() -> impl.onMessage(message));
+    }
+
+    @Test
+    void testIsDuplicateMessage_EnabledDeduplication_DetectsDuplicate() {
+        // 测试消息去重
+        MessageQueueTrigger trigger = new MessageQueueTrigger()
+            .enableDeduplication(true)
+            .deduplicationKey("headers['messageId']");
+
+        MessageQueueTriggerImpl impl = new MessageQueueTriggerImpl();
+        impl.trigger = trigger;
+
+        Message message1 = mockMessageWithId("msg-001");
+        Message message2 = mockMessageWithId("msg-001");
+
+        assertFalse(impl.isDuplicateMessage(message1));
+        impl.recordMessageForDeduplication(message1);
+        assertTrue(impl.isDuplicateMessage(message2));
+    }
+
+    @Test
+    void testHandleMessageError_ExceedsMaxRetries_SendsToDeadLetterQueue() {
+        // 测试重试机制和死信队列
+        MessageQueueTrigger trigger = new MessageQueueTrigger()
+            .maxRetries(3)
+            .deadLetterQueue("test.dlq");
+
+        MessageQueueTriggerImpl impl = new MessageQueueTriggerImpl();
+        impl.trigger = trigger;
+
+        Message message = mockMessage("invalid-json");
+        Exception error = new RuntimeException("Parse error");
+
+        // 模拟多次重试
+        for (int i = 0; i <= 3; i++) {
+            impl.handleMessageError(message, error);
+        }
+
+        // 验证消息被发送到死信队列
+        verify(impl, times(1)).sendToDeadLetterQueue(message, error);
+    }
+}
+```
+
+#### 6.1.3 ScheduledTriggerImpl测试用例
+
+**测试类**: `ScheduledTriggerImplTest`
+
+```java
+@ExtendWith(MockitoExtension.class)
+class ScheduledTriggerImplTest {
+
+    @Mock
+    private ScheduledExecutorService scheduler;
+
+    @Test
+    void testScheduleCronJob_ValidCronExpression_SchedulesSuccessfully() {
+        // 测试Cron表达式调度
+        ScheduledTrigger trigger = new ScheduledTrigger()
+            .cronExpression("0 0 2 * * ?")
+            .timeZone("Asia/Shanghai");
+
+        ScheduledTriggerImpl impl = new ScheduledTriggerImpl();
+        impl.trigger = trigger;
+        impl.scheduler = scheduler;
+
+        assertDoesNotThrow(() -> impl.scheduleCronJob());
+        verify(scheduler, times(1)).schedule(any(Runnable.class), anyLong(), eq(TimeUnit.MILLISECONDS));
+    }
+
+    @Test
+    void testExecuteTask_MaxExecutionsReached_StopsExecution() {
+        // 测试最大执行次数限制
+        ScheduledTrigger trigger = new ScheduledTrigger()
+            .maxExecutions(5);
+
+        ScheduledTriggerImpl impl = new ScheduledTriggerImpl();
+        impl.trigger = trigger;
+
+        // 执行6次，第6次应该停止
+        for (int i = 1; i <= 6; i++) {
+            impl.executeTask();
+        }
+
+        verify(impl, times(1)).unschedule();
+    }
+
+    @Test
+    void testExecuteTask_ConcurrentExecutionDisabled_SkipsOverlappingExecution() {
+        // 测试并发执行控制
+        ScheduledTrigger trigger = new ScheduledTrigger()
+            .allowConcurrentExecution(false);
+
+        ScheduledTriggerImpl impl = new ScheduledTriggerImpl();
+        impl.trigger = trigger;
+
+        // 模拟并发执行
+        CompletableFuture<Void> future1 = CompletableFuture.runAsync(impl::executeTask);
+        CompletableFuture<Void> future2 = CompletableFuture.runAsync(impl::executeTask);
+
+        CompletableFuture.allOf(future1, future2).join();
+
+        // 验证只有一个执行成功
+        verify(impl.workflowEngine, times(1)).start(any(TriggerInstance.class));
+    }
+}
+```
+
+### 6.2 集成测试用例
+
+#### 6.2.1 TriggerService集成测试
+
+**测试类**: `TriggerServiceIntegrationTest`
+
+```java
+@SpringBootTest
+@Transactional
+@TestPropertySource(locations = "classpath:application-test.properties")
+class TriggerServiceIntegrationTest {
+
+    @Autowired
+    private TriggerService triggerService;
+
+    @Autowired
+    private TriggerConfigRepository triggerConfigRepository;
+
+    @Autowired
+    private TriggerExecutionLogRepository executionLogRepository;
+
+    @Test
+    void testCreateTrigger_ValidConfig_SavesSuccessfully() {
+        // 测试触发器创建
+        TriggerConfigDto config = createValidHttpTriggerConfig();
+
+        TriggerConfigDto created = triggerService.createTrigger(config);
+
+        assertNotNull(created);
+        assertEquals(config.getTriggerId(), created.getTriggerId());
+
+        // 验证数据库记录
+        TriggerConfig entity = triggerConfigRepository.findByTriggerId(config.getTriggerId());
+        assertNotNull(entity);
+        assertEquals(config.getName(), entity.getName());
+    }
+
+    @Test
+    void testProcessHttpTrigger_ValidRequest_StartsWorkflow() {
+        // 测试HTTP触发器处理
+        TriggerConfigDto config = createValidHttpTriggerConfig();
+        triggerService.createTrigger(config);
+
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.setMethod("POST");
+        request.setContentType("application/json");
+        request.setContent("{\"orderId\": \"12345\"}".getBytes());
+
+        Map<String, Object> result = triggerService.processHttpTrigger(config.getTriggerId(), request);
+
+        assertTrue((Boolean) result.get("success"));
+        assertNotNull(result.get("executionId"));
+        assertNotNull(result.get("workflowInstanceId"));
+
+        // 验证执行日志
+        List<TriggerExecutionLogDto> logs = triggerService.getTriggerExecutionLogs(config.getTriggerId(), 0, 10);
+        assertEquals(1, logs.size());
+        assertEquals(1, logs.get(0).getExecutionStatus().intValue());
+    }
+
+    @Test
+    void testUpdateTriggerStatus_DisableTrigger_StopsListening() {
+        // 测试触发器状态更新
+        TriggerConfigDto config = createValidScheduledTriggerConfig();
+        triggerService.createTrigger(config);
+
+        boolean updated = triggerService.updateTriggerStatus(config.getTriggerId(), false);
+
+        assertTrue(updated);
+
+        TriggerConfig entity = triggerConfigRepository.findByTriggerId(config.getTriggerId());
+        assertEquals(0, entity.getStatus().intValue());
+    }
+}
+```
+
+### 6.3 端到端测试用例
+
+#### 6.3.1 HTTP触发器端到端测试
+
+**测试类**: `HttpTriggerE2ETest`
+
+```java
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@TestPropertySource(locations = "classpath:application-test.properties")
+class HttpTriggerE2ETest {
+
+    @Autowired
+    private TestRestTemplate restTemplate;
+
+    @LocalServerPort
+    private int port;
+
+    @Test
+    void testHttpTriggerWorkflow_CompleteFlow_ExecutesSuccessfully() {
+        // 1. 创建触发器
+        TriggerConfigDto config = createHttpTriggerConfig();
+        ResponseEntity<TriggerConfigDto> createResponse = restTemplate.postForEntity(
+            "/api/triggers", config, TriggerConfigDto.class);
+        assertEquals(HttpStatus.CREATED, createResponse.getStatusCode());
+
+        // 2. 触发HTTP请求
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.set("X-Signature", generateSignature("{\"orderId\": \"12345\"}", "test-secret"));
+
+        HttpEntity<String> request = new HttpEntity<>("{\"orderId\": \"12345\"}", headers);
+        ResponseEntity<Map> triggerResponse = restTemplate.postForEntity(
+            "/api/triggers/http/" + config.getTriggerId(), request, Map.class);
+
+        assertEquals(HttpStatus.OK, triggerResponse.getStatusCode());
+        assertTrue((Boolean) triggerResponse.getBody().get("success"));
+
+        // 3. 验证执行日志
+        ResponseEntity<List> logsResponse = restTemplate.getForEntity(
+            "/api/triggers/" + config.getTriggerId() + "/logs", List.class);
+        assertEquals(HttpStatus.OK, logsResponse.getStatusCode());
+        assertFalse(logsResponse.getBody().isEmpty());
+
+        // 4. 清理
+        restTemplate.delete("/api/triggers/" + config.getTriggerId());
+    }
+}
+```
+
+### 6.4 压力测试用例
+
+#### 6.4.1 HTTP触发器并发压力测试
+
+**JMeter测试计划**: `http-trigger-load-test.jmx`
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<jmeterTestPlan version="1.2">
+  <hashTree>
+    <TestPlan guiclass="TestPlanGui" testclass="TestPlan" testname="HTTP触发器压力测试">
+      <elementProp name="TestPlan.arguments" elementType="Arguments" guiclass="ArgumentsPanel">
+        <collectionProp name="Arguments.arguments"/>
+      </elementProp>
+      <stringProp name="TestPlan.user_define_classpath"></stringProp>
+      <boolProp name="TestPlan.serialize_threadgroups">false</boolProp>
+      <boolProp name="TestPlan.functional_mode">false</boolProp>
+    </TestPlan>
+    <hashTree>
+      <ThreadGroup guiclass="ThreadGroupGui" testclass="ThreadGroup" testname="并发用户组">
+        <stringProp name="ThreadGroup.on_sample_error">continue</stringProp>
+        <elementProp name="ThreadGroup.main_controller" elementType="LoopController">
+          <boolProp name="LoopController.continue_forever">false</boolProp>
+          <stringProp name="LoopController.loops">100</stringProp>
+        </elementProp>
+        <stringProp name="ThreadGroup.num_threads">50</stringProp>
+        <stringProp name="ThreadGroup.ramp_time">10</stringProp>
+        <longProp name="ThreadGroup.start_time">1</longProp>
+        <longProp name="ThreadGroup.end_time">1</longProp>
+        <boolProp name="ThreadGroup.scheduler">false</boolProp>
+        <stringProp name="ThreadGroup.duration"></stringProp>
+        <stringProp name="ThreadGroup.delay"></stringProp>
+      </ThreadGroup>
+      <hashTree>
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="HTTP触发器请求">
+          <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
+            <collectionProp name="Arguments.arguments">
+              <elementProp name="" elementType="HTTPArgument">
+                <boolProp name="HTTPArgument.always_encode">false</boolProp>
+                <stringProp name="Argument.value">{"orderId": "${__UUID()}", "amount": ${__Random(100,1000)}, "timestamp": ${__time()}}</stringProp>
+                <stringProp name="Argument.metadata">=</stringProp>
+              </elementProp>
+            </collectionProp>
+          </elementProp>
+          <stringProp name="HTTPSampler.domain">localhost</stringProp>
+          <stringProp name="HTTPSampler.port">8080</stringProp>
+          <stringProp name="HTTPSampler.protocol">http</stringProp>
+          <stringProp name="HTTPSampler.contentEncoding"></stringProp>
+          <stringProp name="HTTPSampler.path">/api/triggers/http/load-test-trigger</stringProp>
+          <stringProp name="HTTPSampler.method">POST</stringProp>
+          <boolProp name="HTTPSampler.follow_redirects">true</boolProp>
+          <boolProp name="HTTPSampler.auto_redirects">false</boolProp>
+          <boolProp name="HTTPSampler.use_keepalive">true</boolProp>
+          <boolProp name="HTTPSampler.DO_MULTIPART_POST">false</boolProp>
+          <stringProp name="HTTPSampler.embedded_url_re"></stringProp>
+          <stringProp name="HTTPSampler.connect_timeout"></stringProp>
+          <stringProp name="HTTPSampler.response_timeout"></stringProp>
+        </HTTPSamplerProxy>
+        <hashTree>
+          <HeaderManager guiclass="HeaderPanel" testclass="HeaderManager" testname="HTTP头管理器">
+            <collectionProp name="HeaderManager.headers">
+              <elementProp name="" elementType="Header">
+                <stringProp name="Header.name">Content-Type</stringProp>
+                <stringProp name="Header.value">application/json</stringProp>
+              </elementProp>
+            </collectionProp>
+          </HeaderManager>
+          <hashTree/>
+          <ResponseAssertion guiclass="AssertionGui" testclass="ResponseAssertion" testname="响应断言">
+            <collectionProp name="Asserion.test_strings">
+              <stringProp name="49586">200</stringProp>
+            </collectionProp>
+            <stringProp name="Assertion.test_field">Assertion.response_code</stringProp>
+            <boolProp name="Assertion.assume_success">false</boolProp>
+            <intProp name="Assertion.test_type">1</intProp>
+          </ResponseAssertion>
+          <hashTree/>
+        </hashTree>
+      </hashTree>
+    </hashTree>
+  </hashTree>
+</jmeterTestPlan>
+```
+
+#### 6.4.2 性能基准测试
+
+**测试目标**:
+- **HTTP触发器**: TPS > 500, 平均响应时间 < 100ms, 错误率 < 0.1%
+- **消息队列触发器**: 消息处理速度 > 1000 msg/s, 消息丢失率 = 0%
+- **定时触发器**: 触发准确率 > 99.9%, 内存使用稳定
+
+**测试脚本**: `performance-benchmark.sh`
+
+```bash
+#!/bin/bash
+
+# HTTP触发器性能测试
+echo "开始HTTP触发器性能测试..."
+jmeter -n -t tests/http-trigger-load-test.jmx -l results/http-results.jtl -e -o results/http-report
+
+# 分析结果
+echo "HTTP触发器测试结果:"
+awk -F',' 'NR>1 {sum+=$2; count++; if($4=="true") success++} END {
+    print "平均响应时间: " sum/count "ms"
+    print "成功率: " (success/count)*100 "%"
+    print "TPS: " count/60
+}' results/http-results.jtl
+
+# 消息队列触发器性能测试
+echo "开始消息队列触发器性能测试..."
+python3 tests/mq-performance-test.py
+
+# 定时触发器稳定性测试
+echo "开始定时触发器稳定性测试..."
+python3 tests/scheduled-trigger-stability-test.py
+
+echo "所有性能测试完成!"
+```
+
+### 6.5 测试数据管理
+
+#### 6.5.1 测试数据准备
+
+**测试数据工厂**: `TestDataFactory.java`
+
+```java
+@Component
+public class TestDataFactory {
+
+    public TriggerConfigDto createHttpTriggerConfig(String triggerId) {
+        TriggerConfigDto config = new TriggerConfigDto();
+        config.setTriggerId(triggerId);
+        config.setTriggerType("httpTrigger");
+        config.setWorkflowId("test-workflow-" + triggerId);
+        config.setName("测试HTTP触发器-" + triggerId);
+        config.setDescription("用于测试的HTTP触发器");
+        config.setStatus(1);
+        config.setCreatedBy("test-user");
+        config.setUpdatedBy("test-user");
+
+        Map<String, Object> httpConfig = new HashMap<>();
+        httpConfig.put("url", "/webhooks/" + triggerId);
+        httpConfig.put("method", "POST");
+        httpConfig.put("secretKey", "test-secret-" + triggerId);
+        httpConfig.put("contentType", "application/json");
+        httpConfig.put("async", true);
+        httpConfig.put("enableSignatureVerification", false);
+        config.setConfig(httpConfig);
+
+        return config;
+    }
+
+    public TriggerConfigDto createScheduledTriggerConfig(String triggerId) {
+        TriggerConfigDto config = new TriggerConfigDto();
+        config.setTriggerId(triggerId);
+        config.setTriggerType("scheduledTrigger");
+        config.setWorkflowId("test-workflow-" + triggerId);
+        config.setName("测试定时触发器-" + triggerId);
+        config.setDescription("用于测试的定时触发器");
+        config.setStatus(1);
+        config.setCreatedBy("test-user");
+        config.setUpdatedBy("test-user");
+
+        Map<String, Object> scheduledConfig = new HashMap<>();
+        scheduledConfig.put("fixedRate", 60000); // 1分钟
+        scheduledConfig.put("initialDelay", 5000); // 5秒延迟
+        scheduledConfig.put("persistent", false);
+        scheduledConfig.put("allowConcurrentExecution", false);
+        config.setConfig(scheduledConfig);
+
+        return config;
+    }
+
+    public List<TriggerExecutionLogDto> createExecutionLogs(String triggerId, int count) {
+        List<TriggerExecutionLogDto> logs = new ArrayList<>();
+
+        for (int i = 1; i <= count; i++) {
+            TriggerExecutionLogDto log = new TriggerExecutionLogDto();
+            log.setTriggerId(triggerId);
+            log.setWorkflowInstanceId("wf-instance-" + i);
+            log.setExecutionId("exec-" + triggerId + "-" + i);
+            log.setExecutionStatus(i % 10 == 0 ? 0 : 1); // 10%失败率
+            log.setExecutionTime(LocalDateTime.now().minusMinutes(count - i));
+            log.setDurationMs((long) (Math.random() * 5000 + 500)); // 500-5500ms
+
+            Map<String, Object> triggerData = new HashMap<>();
+            triggerData.put("testId", i);
+            triggerData.put("timestamp", System.currentTimeMillis());
+            log.setTriggerData(triggerData);
+
+            if (log.getExecutionStatus() == 0) {
+                log.setErrorMessage("模拟错误: 网络超时");
+            }
+
+            logs.add(log);
+        }
+
+        return logs;
+    }
+}
+```
+
+#### 6.5.2 测试环境清理
+
+**测试清理工具**: `TestCleanupUtil.java`
+
+```java
+@Component
+public class TestCleanupUtil {
+
+    @Autowired
+    private TriggerConfigRepository triggerConfigRepository;
+
+    @Autowired
+    private TriggerExecutionLogRepository executionLogRepository;
+
+    @Transactional
+    public void cleanupTestData() {
+        // 清理测试触发器配置
+        List<TriggerConfig> testTriggers = triggerConfigRepository.findAll().stream()
+            .filter(t -> t.getTriggerId().startsWith("test-") ||
+                        t.getCreatedBy().equals("test-user"))
+            .collect(Collectors.toList());
+
+        for (TriggerConfig trigger : testTriggers) {
+            // 先删除执行日志
+            executionLogRepository.deleteByTriggerId(trigger.getTriggerId());
+            // 再删除触发器配置
+            triggerConfigRepository.delete(trigger);
+        }
+
+        log.info("清理了 {} 个测试触发器配置", testTriggers.size());
+    }
+
+    @Transactional
+    public void cleanupOldExecutionLogs(int daysToKeep) {
+        LocalDateTime cutoffTime = LocalDateTime.now().minusDays(daysToKeep);
+        int deletedCount = executionLogRepository.deleteByExecutionTimeBefore(cutoffTime);
+        log.info("清理了 {} 条过期执行日志", deletedCount);
+    }
+}
+```
+
+## 7. 部署和运维指南
+
+### 7.1 Docker容器化部署
+
+#### 7.1.1 Dockerfile
+
+```dockerfile
+FROM openjdk:8-jre-alpine
+
+# 设置工作目录
+WORKDIR /app
+
+# 安装必要的工具
+RUN apk add --no-cache curl
+
+# 复制应用程序
+COPY target/effektif-integration-platform-2.0.0.jar app.jar
+
+# 创建非root用户
+RUN addgroup -g 1001 effektif && \
+    adduser -D -s /bin/sh -u 1001 -G effektif effektif
+
+# 创建日志目录
+RUN mkdir -p /var/log/effektif && \
+    chown -R effektif:effektif /var/log/effektif
+
+# 切换到非root用户
+USER effektif
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:8080/api/actuator/health || exit 1
+
+# 暴露端口
+EXPOSE 8080
+
+# 启动应用
+ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/app.jar"]
+```
+
+#### 7.1.2 Docker Compose配置
+
+```yaml
+version: '3.8'
+
+services:
+  effektif-integration-platform:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - SPRING_PROFILES_ACTIVE=production
+      - DATABASE_URL=jdbc:mysql://mysql:3306/effektif_integration
+      - DATABASE_USERNAME=effektif
+      - DATABASE_PASSWORD=effektif123
+      - RABBITMQ_HOST=rabbitmq
+      - MONGODB_HOST=mongodb
+    depends_on:
+      - mysql
+      - rabbitmq
+      - mongodb
+    volumes:
+      - ./logs:/var/log/effektif
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=effektif_integration
+      - MYSQL_USER=effektif
+      - MYSQL_PASSWORD=effektif123
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "3306:3306"
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.8-management
+    environment:
+      - RABBITMQ_DEFAULT_USER=effektif
+      - RABBITMQ_DEFAULT_PASS=effektif123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:4.4
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=effektif
+      - MONGO_INITDB_ROOT_PASSWORD=effektif123
+      - MONGO_INITDB_DATABASE=effektif
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+    restart: unless-stopped
+
+volumes:
+  mysql_data:
+  rabbitmq_data:
+  mongodb_data:
+  prometheus_data:
+  grafana_data:
+```
+
+### 7.2 Kubernetes部署
+
+#### 7.2.1 部署清单
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: effektif-integration-platform
+  labels:
+    app: effektif-integration-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: effektif-integration-platform
+  template:
+    metadata:
+      labels:
+        app: effektif-integration-platform
+    spec:
+      containers:
+      - name: app
+        image: effektif-integration-platform:2.0.0
+        ports:
+        - containerPort: 8080
+        env:
+        - name: SPRING_PROFILES_ACTIVE
+          value: "production"
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: url
+        - name: DATABASE_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: username
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: password
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /api/actuator/health
+            port: 8080
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /api/actuator/health
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log/effektif
+      volumes:
+      - name: logs
+        persistentVolumeClaim:
+          claimName: effektif-logs-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: effektif-integration-platform-service
+spec:
+  selector:
+    app: effektif-integration-platform
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+  type: LoadBalancer
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: effektif-integration-platform-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+  - hosts:
+    - api.effektif.example.com
+    secretName: effektif-tls
+  rules:
+  - host: api.effektif.example.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: effektif-integration-platform-service
+            port:
+              number: 80
+```
+
+### 7.3 监控和告警
+
+#### 7.3.1 Prometheus配置
+
+```yaml
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "effektif_rules.yml"
+
+scrape_configs:
+  - job_name: 'effektif-integration-platform'
+    static_configs:
+      - targets: ['effektif-integration-platform:8080']
+    metrics_path: '/api/actuator/prometheus'
+    scrape_interval: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+```
+
+#### 7.3.2 告警规则
+
+```yaml
+groups:
+- name: effektif-integration-platform
+  rules:
+  - alert: HighErrorRate
+    expr: rate(trigger_execution_total{status="failure"}[5m]) / rate(trigger_execution_total[5m]) > 0.1
+    for: 2m
+    labels:
+      severity: warning
+    annotations:
+      summary: "触发器执行错误率过高"
+      description: "触发器 {{ $labels.trigger_id }} 的错误率超过10%"
+
+  - alert: HighResponseTime
+    expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 1
+    for: 5m
+    labels:
+      severity: warning
+    annotations:
+      summary: "HTTP响应时间过长"
+      description: "95%的HTTP请求响应时间超过1秒"
+
+  - alert: ServiceDown
+    expr: up{job="effektif-integration-platform"} == 0
+    for: 1m
+    labels:
+      severity: critical
+    annotations:
+      summary: "服务不可用"
+      description: "Effektif集成平台服务已停止响应"
+```
+
+## 8. 总结
+
+Effektif集成平台2.0通过引入多种触发器类型，大大增强了工作流的触发能力和集成灵活性。基于Spring Boot的架构设计确保了系统的可扩展性、可维护性和企业级特性。完整的测试体系和部署方案为系统的稳定运行提供了保障。
+
+### 8.1 技术亮点
+
+1. **多样化的触发器支持**: 涵盖HTTP、消息队列、定时、数据库、文件等多种触发方式
+2. **企业级架构设计**: 高可用、集群支持、监控告警、安全认证
+3. **完整的测试体系**: 单元测试、集成测试、端到端测试、压力测试
+4. **云原生部署**: Docker容器化、Kubernetes编排、微服务架构
+5. **可观测性**: 指标监控、日志记录、链路追踪、健康检查
+
+### 8.2 未来发展方向
+
+1. **更多触发器类型**: 支持更多的外部系统集成
+2. **可视化配置**: 提供图形化的触发器配置界面
+3. **智能化运维**: 基于AI的异常检测和自动修复
+4. **多云部署**: 支持多云环境的部署和管理
+5. **生态系统**: 构建完整的集成平台生态系统

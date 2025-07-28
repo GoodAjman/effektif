@@ -127,21 +127,311 @@ System.out.println("工作流实例已启动: " + instance.getId());
 ```
 
 ### 5. 推进工作流执行
+
+#### 5.1 理解活动ID与活动实例的关系
+
+当工作流启动时，会发生以下过程：
+
+```java
+// 工作流定义中的活动ID
+.activity("greet", new ReceiveTask()  // "greet" 是活动定义的ID
+    .name("问候任务")
+    .transitionTo("end"))
+```
+
+当工作流实例启动后：
+1. **活动定义** (`Activity`) 是静态的模板，定义了活动的行为
+2. **活动实例** (`ActivityInstance`) 是运行时的实例，基于活动定义创建
+3. 每个活动实例都有自己的唯一ID，但可以通过活动定义ID来查找
+
+```java
+// 启动工作流后，系统内部发生的过程：
+// 1. 根据工作流定义创建工作流实例
+// 2. 执行 StartEvent，完成后自动流转到 "greet" 活动
+// 3. 创建 "greet" 活动的实例 (ActivityInstance)
+// 4. ReceiveTask 进入等待状态，等待外部消息
+```
+
+#### 5.2 查找和操作活动实例
+
 ```java
 import com.effektif.workflow.api.model.Message;
+import com.effektif.workflow.api.workflowinstance.ActivityInstance;
 
-// 查找等待中的活动实例
-String activityInstanceId = instance.findOpenActivityInstance("greet").getId();
+// 方法1: 通过活动定义ID查找活动实例
+ActivityInstance greetActivityInstance = instance.findOpenActivityInstance("greet");
+if (greetActivityInstance != null) {
+    String activityInstanceId = greetActivityInstance.getId();
+    System.out.println("找到等待中的活动实例: " + activityInstanceId);
+} else {
+    System.out.println("活动 'greet' 不在等待状态或已完成");
+}
+
+// 方法2: 查看所有开放的活动实例
+List<ActivityInstance> openActivities = instance.getOpenActivityInstances();
+for (ActivityInstance activity : openActivities) {
+    System.out.println("开放活动: " + activity.getActivityId() +
+                      " (实例ID: " + activity.getId() + ")");
+}
 
 // 发送消息完成任务
-WorkflowInstance updatedInstance = workflowEngine.send(
-    new Message()
-        .workflowInstanceId(instance.getId())
-        .activityInstanceId(activityInstanceId)
-        .data("response", "任务已完成")
-);
+if (greetActivityInstance != null) {
+    WorkflowInstance updatedInstance = workflowEngine.send(
+        new Message()
+            .workflowInstanceId(instance.getId())
+            .activityInstanceId(greetActivityInstance.getId())
+            .data("response", "任务已完成")
+            .data("timestamp", new Date())
+    );
 
-System.out.println("工作流状态: " + updatedInstance.isEnded() ? "已完成" : "进行中");
+    System.out.println("工作流状态: " + (updatedInstance.isEnded() ? "已完成" : "进行中"));
+}
+```
+
+#### 5.3 完整的执行示例
+
+```java
+public class WorkflowExecutionExample {
+    public static void main(String[] args) {
+        // 1. 创建引擎
+        Configuration configuration = new MemoryConfiguration();
+        configuration.start();
+        WorkflowEngine workflowEngine = configuration.getWorkflowEngine();
+
+        // 2. 定义工作流
+        ExecutableWorkflow workflow = new ExecutableWorkflow()
+            .sourceWorkflowId("demo-workflow")
+            .name("演示工作流")
+            .activity("start", new StartEvent()
+                .name("开始")
+                .transitionTo("task1"))
+            .activity("task1", new ReceiveTask()
+                .name("第一个任务")
+                .transitionTo("task2"))
+            .activity("task2", new ReceiveTask()
+                .name("第二个任务")
+                .transitionTo("end"))
+            .activity("end", new EndEvent()
+                .name("结束"));
+
+        // 3. 部署工作流
+        Deployment deployment = workflowEngine.deployWorkflow(workflow);
+        System.out.println("工作流部署: " + (deployment.hasErrors() ? "失败" : "成功"));
+
+        // 4. 启动工作流实例
+        WorkflowInstance instance = workflowEngine.start(
+            new TriggerInstance()
+                .workflowId(deployment.getWorkflowId())
+                .data("initiator", "张三")
+        );
+
+        System.out.println("工作流实例已启动: " + instance.getId());
+        printWorkflowStatus(instance);
+
+        // 5. 完成第一个任务
+        ActivityInstance task1Instance = instance.findOpenActivityInstance("task1");
+        if (task1Instance != null) {
+            System.out.println("\n完成第一个任务...");
+            instance = workflowEngine.send(
+                new Message()
+                    .workflowInstanceId(instance.getId())
+                    .activityInstanceId(task1Instance.getId())
+                    .data("task1Result", "第一个任务完成")
+            );
+            printWorkflowStatus(instance);
+        }
+
+        // 6. 完成第二个任务
+        ActivityInstance task2Instance = instance.findOpenActivityInstance("task2");
+        if (task2Instance != null) {
+            System.out.println("\n完成第二个任务...");
+            instance = workflowEngine.send(
+                new Message()
+                    .workflowInstanceId(instance.getId())
+                    .activityInstanceId(task2Instance.getId())
+                    .data("task2Result", "第二个任务完成")
+            );
+            printWorkflowStatus(instance);
+        }
+
+        System.out.println("\n工作流执行完成!");
+    }
+
+    private static void printWorkflowStatus(WorkflowInstance instance) {
+        System.out.println("工作流状态: " + (instance.isEnded() ? "已结束" : "进行中"));
+
+        List<ActivityInstance> openActivities = instance.getOpenActivityInstances();
+        if (!openActivities.isEmpty()) {
+            System.out.println("等待中的活动:");
+            for (ActivityInstance activity : openActivities) {
+                System.out.println("  - " + activity.getActivityId() +
+                                 " (" + activity.getId() + ")");
+            }
+        }
+
+        // 显示已完成的活动
+        List<ActivityInstance> endedActivities = instance.getEndedActivityInstances();
+        if (!endedActivities.isEmpty()) {
+            System.out.println("已完成的活动:");
+            for (ActivityInstance activity : endedActivities) {
+                System.out.println("  - " + activity.getActivityId());
+            }
+        }
+    }
+}
+```
+
+## 🔍 调试和监控
+
+### 调试工作流执行
+
+```java
+public class WorkflowDebugExample {
+    public static void main(String[] args) {
+        // 启用调试日志
+        System.setProperty("org.slf4j.simpleLogger.log.com.effektif", "debug");
+
+        Configuration configuration = new MemoryConfiguration();
+        configuration.start();
+        WorkflowEngine workflowEngine = configuration.getWorkflowEngine();
+
+        // 定义工作流
+        ExecutableWorkflow workflow = new ExecutableWorkflow()
+            .sourceWorkflowId("debug-workflow")
+            .name("调试工作流")
+            .activity("start", new StartEvent()
+                .name("开始")
+                .transitionTo("task"))
+            .activity("task", new ReceiveTask()
+                .name("等待任务")
+                .transitionTo("end"))
+            .activity("end", new EndEvent()
+                .name("结束"));
+
+        // 部署并启动
+        Deployment deployment = workflowEngine.deployWorkflow(workflow);
+        WorkflowInstance instance = workflowEngine.start(
+            new TriggerInstance().workflowId(deployment.getWorkflowId())
+        );
+
+        // 详细状态检查
+        System.out.println("=== 工作流启动后状态 ===");
+        printDetailedStatus(instance);
+
+        // 查找等待中的活动
+        ActivityInstance waitingTask = findWaitingActivity(instance, "task");
+        if (waitingTask != null) {
+            System.out.println("\n=== 发送消息前 ===");
+            System.out.println("等待活动: " + waitingTask.getActivityId());
+            System.out.println("活动实例ID: " + waitingTask.getId());
+
+            // 发送消息
+            WorkflowInstance updatedInstance = workflowEngine.send(
+                new Message()
+                    .workflowInstanceId(instance.getId())
+                    .activityInstanceId(waitingTask.getId())
+                    .data("result", "任务完成")
+            );
+
+            System.out.println("\n=== 发送消息后状态 ===");
+            printDetailedStatus(updatedInstance);
+        }
+    }
+
+    private static ActivityInstance findWaitingActivity(WorkflowInstance instance, String activityId) {
+        // 方法1: 使用便捷方法
+        ActivityInstance found = instance.findOpenActivityInstance(activityId);
+        if (found != null) {
+            return found;
+        }
+
+        // 方法2: 手动遍历查找
+        List<ActivityInstance> openActivities = instance.getOpenActivityInstances();
+        for (ActivityInstance activity : openActivities) {
+            if (activityId.equals(activity.getActivityId())) {
+                return activity;
+            }
+        }
+
+        return null;
+    }
+
+    private static void printDetailedStatus(WorkflowInstance instance) {
+        System.out.println("工作流实例ID: " + instance.getId());
+        System.out.println("工作流状态: " + (instance.isEnded() ? "已结束" : "进行中"));
+
+        // 显示所有活动实例
+        List<ActivityInstance> allActivities = instance.getActivityInstances();
+        if (allActivities != null) {
+            System.out.println("所有活动实例:");
+            for (ActivityInstance activity : allActivities) {
+                String status = activity.isEnded() ? "已完成" : "进行中";
+                System.out.println("  - " + activity.getActivityId() +
+                                 " (实例ID: " + activity.getId() +
+                                 ", 状态: " + status + ")");
+            }
+        }
+
+        // 显示开放的活动
+        List<ActivityInstance> openActivities = instance.getOpenActivityInstances();
+        if (!openActivities.isEmpty()) {
+            System.out.println("等待中的活动:");
+            for (ActivityInstance activity : openActivities) {
+                System.out.println("  - " + activity.getActivityId() +
+                                 " (实例ID: " + activity.getId() + ")");
+            }
+        }
+
+        // 显示变量值
+        if (instance.getVariableInstances() != null && !instance.getVariableInstances().isEmpty()) {
+            System.out.println("变量值:");
+            for (VariableInstance var : instance.getVariableInstances()) {
+                System.out.println("  - " + var.getVariableId() + " = " + var.getValue());
+            }
+        }
+    }
+}
+```
+
+### 工作流执行监听器
+
+```java
+public class WorkflowExecutionListener implements com.effektif.workflow.impl.WorkflowExecutionListener {
+
+    @Override
+    public void starting(WorkflowInstanceImpl workflowInstance) {
+        System.out.println("工作流实例启动: " + workflowInstance.getId());
+    }
+
+    @Override
+    public void ended(WorkflowInstanceImpl workflowInstance) {
+        System.out.println("工作流实例结束: " + workflowInstance.getId());
+    }
+
+    @Override
+    public void activityInstanceStarted(ActivityInstanceImpl activityInstance) {
+        System.out.println("活动开始: " + activityInstance.getActivity().getId() +
+                          " (实例: " + activityInstance.getId() + ")");
+    }
+
+    @Override
+    public void activityInstanceEnded(ActivityInstanceImpl activityInstance) {
+        System.out.println("活动结束: " + activityInstance.getActivity().getId() +
+                          " (实例: " + activityInstance.getId() + ")");
+    }
+
+    @Override
+    public void transitioning(ActivityInstanceImpl from, TransitionImpl transition, ActivityInstanceImpl to) {
+        String fromActivity = from != null ? from.getActivity().getId() : "null";
+        String toActivity = to != null ? to.getActivity().getId() : "null";
+        System.out.println("流转: " + fromActivity + " -> " + toActivity);
+    }
+}
+
+// 使用监听器
+Configuration configuration = new MemoryConfiguration();
+configuration.ingredient(new WorkflowExecutionListener());
+configuration.start();
 ```
 
 ## 🎯 常用活动类型

@@ -40,6 +40,7 @@
     <module>effektif-adapter-activity</module>
     <module>effektif-server</module>
     <module>effektif-adapter</module>
+    <module>effektif-integration-platform</module>
   </modules>
 
   <dependencies>

@@ -26,32 +26,81 @@ import com.effektif.workflow.api.types.DataType;
 
 
 /**
- * An executable workflow in API format to deploy
- * it into the {@link WorkflowEngine}.
- * 
- * From this API format, the workflow can be converted 
- * to following other formats:
+ * 可执行工作流定义类 - 用于部署到工作流引擎的工作流定义
+ *
+ * 这是工作流定义的API表示形式，采用建造者模式(Builder Pattern)设计，
+ * 支持链式调用来构建复杂的工作流定义。
+ *
+ * 核心特性：
+ * 1. 多格式支持：可以转换为JSON、BPMN XML、数据库格式等
+ * 2. 链式构建：支持流畅的API来定义活动、流转、变量等
+ * 3. 版本管理：通过sourceWorkflowId支持工作流版本控制
+ * 4. 元数据管理：包含创建时间、创建者等元信息
+ *
+ * 继承层次：
+ * ExecutableWorkflow → AbstractWorkflow → Scope → Element
+ *
+ * 使用示例：
+ * <pre>{@code
+ * ExecutableWorkflow workflow = new ExecutableWorkflow()
+ *   .sourceWorkflowId("vacation-request")
+ *   .name("请假申请流程")
+ *   .variable("applicant", new TextType())
+ *   .variable("days", new NumberType())
+ *   .activity("start", new StartEvent()
+ *     .transitionTo("apply"))
+ *   .activity("apply", new ReceiveTask()
+ *     .name("提交申请")
+ *     .transitionTo("approve"))
+ *   .activity("approve", new ReceiveTask()
+ *     .name("经理审批")
+ *     .transitionTo("end"))
+ *   .activity("end", new EndEvent());
+ * }</pre>
+ *
+ * 支持的序列化格式：
  * <ul>
- *   <li>JSON java format (maps and lists)</li>
- *   <li>JSON format (String or stream)</li>
- *   <li>BPMN XML</li>
- *   <li>DB format</li>
+ *   <li>JSON Java格式 (Map和List)</li>
+ *   <li>JSON字符串格式</li>
+ *   <li>BPMN 2.0 XML格式</li>
+ *   <li>数据库存储格式</li>
  * </ul>
  *
- * BPMN XML:
+ * BPMN XML示例：
  * <pre>{@code
  * <process id="vacationRequest" name="Vacation request">
- *   <!-- activities -->
+ *   <startEvent id="start"/>
+ *   <userTask id="apply" name="Submit application"/>
+ *   <userTask id="approve" name="Manager approval"/>
+ *   <endEvent id="end"/>
+ *   <sequenceFlow sourceRef="start" targetRef="apply"/>
+ *   <sequenceFlow sourceRef="apply" targetRef="approve"/>
+ *   <sequenceFlow sourceRef="approve" targetRef="end"/>
  * </process>
  * }</pre>
  *
+ * @see WorkflowEngine#deployWorkflow(ExecutableWorkflow) 部署工作流
+ * @see AbstractWorkflow 工作流基类
+ * @see Activity 活动定义
+ * @see Transition 流转定义
  * @author Tom Baeyens
  */
 public class ExecutableWorkflow extends AbstractWorkflow {
-  
-  /** @see #sourceWorkflowId(String) */
+
+  /**
+   * 源工作流ID - 用于版本控制和工作流族管理
+   *
+   * 同一个sourceWorkflowId可以对应多个不同版本的工作流定义，
+   * 系统可以根据这个ID查找最新版本或特定版本的工作流。
+   *
+   * @see #sourceWorkflowId(String)
+   */
   protected String sourceWorkflowId;
+
+  /** 工作流创建时间 */
   protected LocalDateTime createTime;
+
+  /** 工作流创建者ID */
   protected String creatorId;
 
   @Override

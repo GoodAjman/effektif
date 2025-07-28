@@ -44,22 +44,66 @@ import java.util.List;
 import java.util.Map;
 
 /**
+ * 工作流引擎核心实现类
+ *
+ * 这是WorkflowEngine接口的主要实现，负责协调各个组件完成工作流的
+ * 部署、启动、执行和管理等核心功能。
+ *
+ * 架构设计：
+ * 1. 实现Brewable接口，支持依赖注入
+ * 2. 采用组合模式，聚合各种服务组件
+ * 3. 使用策略模式，支持不同的存储和执行策略
+ * 4. 实现观察者模式，支持工作流执行监听器
+ *
+ * 核心组件：
+ * - WorkflowStore: 工作流定义存储
+ * - WorkflowInstanceStore: 工作流实例存储
+ * - WorkflowCache: 工作流定义缓存
+ * - ExecutorService: 异步执行服务
+ * - DataTypeService: 数据类型服务
+ *
+ * 并发控制：
+ * - 使用工作流实例锁机制确保并发安全
+ * - 支持重试机制处理锁竞争
+ * - 异步执行避免阻塞主线程
+ *
  * @author Tom Baeyens
  */
 public class WorkflowEngineImpl implements WorkflowEngine, Brewable {
 
   public static final Logger log = LoggerFactory.getLogger(WorkflowEngine.class);
 
+  /** 工作流引擎唯一标识 */
   public String id;
+
+  /** 异步执行服务，用于处理后台任务和定时任务 */
   public ExecutorService executorService;
+
+  /** 工作流定义缓存，提高查找性能 */
   public WorkflowCache workflowCache;
+
+  /** 工作流定义存储接口 */
   public WorkflowStore workflowStore;
+
+  /** 工作流实例存储接口 */
   public WorkflowInstanceStore workflowInstanceStore;
+
+  /** 工作流引擎配置 */
   public Configuration configuration;
+
+  /** 工作流执行监听器列表，用于监控和审计 */
   public List<WorkflowExecutionListener> workflowExecutionListeners;
+
+  /** 数据类型服务，处理变量类型转换和验证 */
   public DataTypeService dataTypeService;
 
 
+  /**
+   * 依赖注入回调方法
+   *
+   * 当Brewery容器初始化此组件时调用，用于注入所需的依赖组件。
+   * 这是依赖注入模式的实现，避免了硬编码的依赖关系。
+   */
   @Override
   public void brew(Brewery brewery) {
     this.id = brewery.get(WorkflowEngineConfiguration.class).getWorkflowEngineId();
@@ -71,37 +115,70 @@ public class WorkflowEngineImpl implements WorkflowEngine, Brewable {
     this.dataTypeService = brewery.get(DataTypeService.class);
   }
 
+  /**
+   * 引擎启动方法
+   *
+   * 预留的启动钩子，可以在子类中重写以执行启动时的初始化逻辑。
+   */
   public void startup() {
   }
 
+  /**
+   * 引擎关闭方法
+   *
+   * 优雅关闭工作流引擎，清理资源并停止后台服务。
+   */
   public void shutdown() {
     executorService.shutdown();
   }
 
-  /// Workflow methods ////////////////////////////////////////////////////////////
+  /// 工作流管理方法 ////////////////////////////////////////////////////////////
 
+  /**
+   * 部署工作流定义
+   *
+   * 部署过程包括以下步骤：
+   * 1. 使用WorkflowParser解析和验证工作流定义
+   * 2. 如果验证通过，生成工作流ID（如果未指定）
+   * 3. 设置创建时间并存储到持久化层
+   * 4. 如果包含触发器，注册触发器
+   * 5. 将编译后的工作流放入缓存
+   *
+   * @param workflow 要部署的工作流定义
+   * @return 部署结果，包含工作流ID和验证问题列表
+   */
   @Override
   public Deployment deployWorkflow(ExecutableWorkflow workflow) {
     if (log.isDebugEnabled()) {
       log.debug("Deploying workflow");
     }
 
+    // 第一步：解析和验证工作流定义
     WorkflowParser parser = new WorkflowParser(configuration);
     parser.parse(workflow);
 
+    // 第二步：如果验证通过，进行部署
     if (!parser.hasErrors()) {
       WorkflowImpl workflowImpl = parser.getWorkflow();
       WorkflowId workflowId;
+
+      // 生成工作流ID（如果未指定）
       if (workflow.getId()==null) {
         workflowId = workflowStore.generateWorkflowId();
         workflow.setId(workflowId);
       }
+
+      // 设置元数据并存储
       workflow.setCreateTime(Time.now());
       workflowImpl.id = workflow.getId();
       workflowStore.insertWorkflow(workflow);
+
+      // 注册触发器（如果存在）
       if (workflowImpl.trigger!=null) {
         workflowImpl.trigger.published(workflowImpl);
       }
+
+      // 缓存编译后的工作流
       workflowCache.put(workflowImpl);
     }
 
