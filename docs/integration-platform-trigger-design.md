@@ -58,99 +58,177 @@
 
 ```mermaid
 graph TB
-    subgraph "外部事件源"
-        A[HTTP请求] 
-        B[消息队列]
-        C[定时任务]
-        D[数据库变更]
-        E[文件变更]
+    subgraph "🌐 外部事件源"
+        A["📡 HTTP请求<br/>Webhook/API调用"]
+        B["📨 消息队列<br/>RabbitMQ/Kafka"]
+        C["⏰ 定时任务<br/>Cron/固定间隔"]
+        D["🗄️ 数据库变更<br/>CDC/Trigger"]
+        E["📁 文件变更<br/>文件系统监听"]
     end
-    
-    subgraph "Trigger层"
-        F[HttpTrigger]
-        G[MessageQueueTrigger] 
-        H[ScheduledTrigger]
-        I[DatabaseTrigger]
-        J[FileTrigger]
+
+    subgraph "🔧 触发器处理层"
+        F["🌐 HttpTriggerProcessor<br/>• 请求验证<br/>• 签名校验<br/>• 数据解析"]
+        G["📨 MessageQueueProcessor<br/>• 消息监听<br/>• 确认机制<br/>• 重试处理"]
+        H["⏰ ScheduledProcessor<br/>• 任务调度<br/>• 集群支持<br/>• 持久化"]
+        I["🗄️ DatabaseProcessor<br/>• CDC监听<br/>• 事务处理<br/>• 过滤规则"]
+        J["📁 FileProcessor<br/>• 文件监听<br/>• 事件过滤<br/>• 批量处理"]
     end
-    
-    subgraph "工作流引擎"
-        K[TriggerInstance]
-        L[WorkflowEngine]
-        M[WorkflowInstance]
+
+    subgraph "⚙️ 工作流引擎核心"
+        K["🎯 TriggerInstance<br/>触发实例"]
+        L["🚀 WorkflowEngine<br/>工作流引擎"]
+        M["📋 WorkflowInstance<br/>流程实例"]
     end
-    
-    subgraph "Spring Boot集成平台"
-        N[TriggerController]
-        O[TriggerService]
-        P[TriggerRepository]
-        Q[配置管理]
+
+    subgraph "🏗️ Spring Boot集成平台"
+        N["🎮 TriggerController<br/>REST API控制器"]
+        O["🔧 TriggerService<br/>业务逻辑服务"]
+        P["💾 TriggerRepository<br/>数据访问层"]
+        Q["⚙️ 配置管理<br/>动态配置"]
+        R["📊 监控告警<br/>Metrics/Health"]
     end
-    
-    A --> F
-    B --> G
-    C --> H
-    D --> I
-    E --> J
-    
-    F --> K
-    G --> K
-    H --> K
-    I --> K
-    J --> K
-    
-    K --> L
-    L --> M
-    
-    N --> O
-    O --> P
-    O --> L
-    Q --> O
+
+    A -->|"HTTP请求"| F
+    B -->|"消息事件"| G
+    C -->|"定时触发"| H
+    D -->|"数据变更"| I
+    E -->|"文件事件"| J
+
+    F -->|"创建"| K
+    G -->|"创建"| K
+    H -->|"创建"| K
+    I -->|"创建"| K
+    J -->|"创建"| K
+
+    K -->|"启动"| L
+    L -->|"执行"| M
+
+    N -->|"调用"| O
+    O -->|"访问"| P
+    O -->|"使用"| Q
+    O -->|"监控"| R
+    O -->|"触发"| L
+
+    classDef external fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef processor fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef engine fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef platform fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+
+    class A,B,C,D,E external
+    class F,G,H,I,J processor
+    class K,L,M engine
+    class N,O,P,Q,R platform
 ```
 
 ### 2.2 HTTP触发器时序图
 
 ```mermaid
 sequenceDiagram
-    participant Client as 外部系统
-    participant Controller as TriggerController
-    participant Service as TriggerService
-    participant HttpTrigger as HttpTriggerImpl
-    participant Engine as WorkflowEngine
-    participant Instance as WorkflowInstance
-    
-    Client->>Controller: POST /api/triggers/http/{triggerId}
-    Controller->>Service: processHttpTrigger(triggerId, request)
-    Service->>HttpTrigger: validateAndParse(request)
-    HttpTrigger->>HttpTrigger: 验证签名和权限
-    HttpTrigger->>Engine: start(triggerInstance)
-    Engine->>Instance: 创建工作流实例
-    Instance->>Engine: 执行工作流
-    Engine->>HttpTrigger: 返回执行结果
-    HttpTrigger->>Service: 返回处理结果
-    Service->>Controller: 返回响应
-    Controller->>Client: HTTP 200 OK
+    participant Client as 🌐 外部系统
+    participant Controller as 🎮 TriggerController
+    participant Service as 🔧 TriggerService
+    participant Processor as 🌐 HttpTriggerProcessor
+    participant Engine as 🚀 WorkflowEngine
+    participant Instance as 📋 WorkflowInstance
+    participant DB as 💾 Database
+
+    Note over Client,DB: HTTP触发器完整处理流程
+
+    Client->>+Controller: 📡 POST /api/triggers/http/{triggerId}
+    Note right of Client: 携带业务数据和签名
+
+    Controller->>+Service: 🔄 processHttpTrigger(triggerId, request)
+
+    Service->>+DB: 📖 查询触发器配置
+    DB-->>-Service: 🔙 返回配置信息
+
+    Service->>+Processor: ✅ validateRequest(trigger, request)
+    Note right of Processor: 验证HTTP方法、Content-Type、IP白名单
+    Processor->>Processor: 🔐 verifySignature(payload, signature)
+    Processor-->>-Service: ✅ 验证通过
+
+    Service->>+Processor: 📝 parseRequestData(request)
+    Note right of Processor: 解析请求头、参数、JSON载荷
+    Processor-->>-Service: 📊 返回解析后的数据
+
+    Service->>+Engine: 🚀 start(triggerInstance)
+    Note right of Service: 创建TriggerInstance并设置数据
+
+    Engine->>+Instance: 📋 创建工作流实例
+    Instance->>Instance: ⚙️ 执行工作流逻辑
+    Instance-->>-Engine: 📈 返回执行状态
+
+    Engine-->>-Service: 🎯 返回工作流实例ID
+
+    Service->>+DB: 📝 记录执行日志
+    DB-->>-Service: ✅ 日志记录成功
+
+    Service-->>-Controller: 📊 返回处理结果
+    Controller-->>-Client: 🎉 HTTP 200 OK + 执行结果
+
+    Note over Client,DB: 异步执行完成，可通过API查询状态
 ```
 
 ### 2.3 消息队列触发器时序图
 
 ```mermaid
 sequenceDiagram
-    participant MQ as 消息队列
-    participant Listener as MessageListener
-    participant MQTrigger as MessageQueueTriggerImpl
-    participant Engine as WorkflowEngine
-    participant Instance as WorkflowInstance
-    
-    MQ->>Listener: 接收消息
-    Listener->>MQTrigger: onMessage(message)
-    MQTrigger->>MQTrigger: 解析消息内容
-    MQTrigger->>Engine: start(triggerInstance)
-    Engine->>Instance: 创建工作流实例
-    Instance->>Engine: 执行工作流
-    Engine->>MQTrigger: 返回执行结果
-    MQTrigger->>Listener: 确认消息处理
-    Listener->>MQ: ACK消息
+    participant MQ as 📨 消息队列<br/>(RabbitMQ/Kafka)
+    participant Listener as 👂 MessageListener
+    participant Processor as 📨 MQTriggerProcessor
+    participant Engine as 🚀 WorkflowEngine
+    participant Instance as 📋 WorkflowInstance
+    participant DB as 💾 Database
+    participant DLQ as ☠️ 死信队列
+
+    Note over MQ,DLQ: 消息队列触发器处理流程（含错误处理）
+
+    MQ->>+Listener: 📬 接收消息
+    Note right of MQ: 消息包含业务数据
+
+    Listener->>+Processor: 📝 onMessage(message)
+
+    alt 消息去重检查
+        Processor->>Processor: 🔍 isDuplicateMessage(message)
+        Note right of Processor: 基于消息ID或自定义键去重
+    end
+
+    Processor->>Processor: 📊 parseMessageData(message)
+    Note right of Processor: 解析消息内容和元数据
+
+    Processor->>+Engine: 🚀 start(triggerInstance)
+    Note right of Processor: 创建TriggerInstance并设置消息数据
+
+    alt 工作流执行成功
+        Engine->>+Instance: 📋 创建工作流实例
+        Instance->>Instance: ⚙️ 执行工作流逻辑
+        Instance-->>-Engine: ✅ 执行成功
+        Engine-->>-Processor: 🎯 返回工作流实例ID
+
+        Processor->>+DB: 📝 记录成功日志
+        DB-->>-Processor: ✅ 日志记录完成
+
+        Processor-->>-Listener: ✅ 处理成功
+        Listener->>MQ: 👍 ACK消息
+
+    else 工作流执行失败
+        Engine-->>Processor: ❌ 执行失败
+
+        alt 重试次数未达上限
+            Processor->>Processor: 🔄 增加重试计数
+            Note right of Processor: 等待重试间隔后重新处理
+            Processor-->>Listener: 🔄 NACK消息（重新入队）
+        else 重试次数已达上限
+            Processor->>+DB: 📝 记录失败日志
+            DB-->>-Processor: ✅ 日志记录完成
+
+            Processor->>DLQ: ☠️ 发送到死信队列
+            Processor-->>-Listener: ❌ 处理失败
+            Listener->>MQ: 👎 ACK消息（移除）
+        end
+    end
+
+    Note over MQ,DLQ: 支持消息确认、重试机制和死信队列
 ```
 
 ## 3. 关键数据结构和方法描述
@@ -237,7 +315,146 @@ classDiagram
     ScheduledTriggerImpl --> ScheduledTrigger
 ```
 
-### 3.2 数据库表结构设计
+### 3.2 增强版类图（包含Spring Boot集成）
+
+```mermaid
+classDiagram
+    %% 触发器配置类
+    class HttpTrigger {
+        🌐 HTTP触发器配置
+        +String url "请求URL路径"
+        +String method "HTTP方法"
+        +String secretKey "签名密钥"
+        +boolean async "异步处理"
+        +String[] allowedIps "IP白名单"
+        +boolean enableSignatureVerification "启用签名验证"
+        +String signatureAlgorithm "签名算法"
+        +url(String url) HttpTrigger
+        +method(String method) HttpTrigger
+        +secretKey(String key) HttpTrigger
+    }
+
+    class MessageQueueTrigger {
+        📨 消息队列触发器配置
+        +String queueName "队列名称"
+        +String exchangeName "交换机名称"
+        +String routingKey "路由键"
+        +int concurrency "并发数"
+        +boolean durable "持久化"
+        +int maxRetries "最大重试次数"
+        +String deadLetterQueue "死信队列"
+        +boolean enableDeduplication "启用去重"
+        +queueName(String name) MessageQueueTrigger
+        +concurrency(int count) MessageQueueTrigger
+        +maxRetries(int retries) MessageQueueTrigger
+    }
+
+    class ScheduledTrigger {
+        ⏰ 定时触发器配置
+        +String cronExpression "Cron表达式"
+        +long fixedDelay "固定延迟"
+        +long fixedRate "固定间隔"
+        +String timeZone "时区"
+        +boolean persistent "持久化"
+        +int maxExecutions "最大执行次数"
+        +boolean allowConcurrentExecution "允许并发执行"
+        +cronExpression(String cron) ScheduledTrigger
+        +fixedRate(long rate) ScheduledTrigger
+        +timeZone(String zone) ScheduledTrigger
+    }
+
+    %% 处理器类
+    class HttpTriggerProcessor {
+        🌐 HTTP触发器处理器
+        +validateRequest(HttpTrigger trigger, HttpServletRequest request) boolean
+        +parseRequestData(HttpServletRequest request) Map~String,Object~
+        +verifySignature(HttpTrigger trigger, String payload, String signature) boolean
+        +getClientIpAddress(HttpServletRequest request) String
+    }
+
+    class MessageQueueTriggerProcessor {
+        📨 消息队列触发器处理器
+        +onMessage(Message message) void
+        +startListening() void
+        +stopListening() void
+        +isDuplicateMessage(Message message) boolean
+        +sendToDeadLetterQueue(Message message, Exception error) void
+    }
+
+    class ScheduledTriggerProcessor {
+        ⏰ 定时触发器处理器
+        +ScheduledExecutorService scheduler
+        +schedule() void
+        +unschedule() void
+        +executeTask() void
+        +scheduleCronJob() void
+    }
+
+    %% Spring Boot集成层
+    class TriggerController {
+        🎮 触发器REST控制器
+        +createTrigger(TriggerConfigDto config) ResponseEntity
+        +updateTrigger(String triggerId, TriggerConfigDto config) ResponseEntity
+        +getTrigger(String triggerId) ResponseEntity
+        +deleteTrigger(String triggerId) ResponseEntity
+        +handleHttpTrigger(String triggerId, HttpServletRequest request) ResponseEntity
+        +getTriggerExecutionLogs(String triggerId, int page, int size) ResponseEntity
+    }
+
+    class TriggerService {
+        🔧 触发器业务服务
+        +createTrigger(TriggerConfigDto config) TriggerConfigDto
+        +updateTrigger(TriggerConfigDto config) TriggerConfigDto
+        +deleteTrigger(String triggerId) boolean
+        +processHttpTrigger(String triggerId, HttpServletRequest request) Map
+        +executeTrigger(String triggerId, Map data) Map
+        +buildHttpTriggerFromConfig(TriggerConfig config) HttpTrigger
+    }
+
+    class TriggerConfigRepository {
+        💾 触发器配置数据访问
+        +findByTriggerId(String triggerId) TriggerConfig
+        +findByTriggerType(String type, Pageable pageable) Page
+        +findByStatus(Integer status, Pageable pageable) Page
+        +existsByTriggerId(String triggerId) boolean
+        +countByStatus(Integer status) long
+    }
+
+    class WorkflowEngine {
+        🚀 工作流引擎
+        +start(TriggerInstance triggerInstance) WorkflowInstance
+        +getProcessInstanceQuery() ProcessInstanceQuery
+        +suspendProcessInstance(String processInstanceId) void
+        +activateProcessInstance(String processInstanceId) void
+    }
+
+    %% 关系定义
+    TriggerController --> TriggerService : uses
+    TriggerService --> HttpTriggerProcessor : uses
+    TriggerService --> MessageQueueTriggerProcessor : uses
+    TriggerService --> ScheduledTriggerProcessor : uses
+    TriggerService --> TriggerConfigRepository : uses
+    TriggerService --> WorkflowEngine : uses
+
+    HttpTriggerProcessor --> HttpTrigger : processes
+    MessageQueueTriggerProcessor --> MessageQueueTrigger : processes
+    ScheduledTriggerProcessor --> ScheduledTrigger : processes
+
+    %% 样式定义
+    classDef triggerConfig fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#000
+    classDef processor fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#000
+    classDef springBoot fill:#e8f5e8,stroke:#388e3c,stroke-width:2px,color:#000
+    classDef repository fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#000
+    classDef engine fill:#fce4ec,stroke:#c2185b,stroke-width:2px,color:#000
+
+    class HttpTrigger,MessageQueueTrigger,ScheduledTrigger triggerConfig
+    class HttpTriggerProcessor,MessageQueueTriggerProcessor,ScheduledTriggerProcessor processor
+    class TriggerController,TriggerService springBoot
+    class TriggerConfigRepository repository
+    class WorkflowEngine engine
+```
+
+### 3.3 数据库表结构设计
 
 #### 3.2.1 trigger_config表 - 触发器配置表
 ```sql
@@ -1283,7 +1500,129 @@ spec:
               number: 80
 ```
 
-### 7.3 监控和告警
+### 7.3 部署架构图
+
+```mermaid
+graph TB
+    subgraph "🌐 负载均衡层"
+        LB[🔄 Load Balancer<br/>Nginx/HAProxy]
+    end
+
+    subgraph "🏗️ 应用层 (Kubernetes)"
+        subgraph "Pod 1"
+            APP1[📦 Integration Platform<br/>Instance 1]
+        end
+        subgraph "Pod 2"
+            APP2[📦 Integration Platform<br/>Instance 2]
+        end
+        subgraph "Pod 3"
+            APP3[📦 Integration Platform<br/>Instance 3]
+        end
+    end
+
+    subgraph "💾 数据存储层"
+        subgraph "数据库集群"
+            MYSQL_M[🗄️ MySQL Master]
+            MYSQL_S1[🗄️ MySQL Slave 1]
+            MYSQL_S2[🗄️ MySQL Slave 2]
+        end
+
+        subgraph "消息队列集群"
+            RABBIT1[📨 RabbitMQ Node 1]
+            RABBIT2[📨 RabbitMQ Node 2]
+            RABBIT3[📨 RabbitMQ Node 3]
+        end
+
+        subgraph "工作流存储"
+            MONGO1[🍃 MongoDB Primary]
+            MONGO2[🍃 MongoDB Secondary]
+            MONGO3[🍃 MongoDB Arbiter]
+        end
+
+        REDIS[⚡ Redis Cluster<br/>缓存/会话存储]
+    end
+
+    subgraph "📊 监控层"
+        PROMETHEUS[📈 Prometheus<br/>指标收集]
+        GRAFANA[📊 Grafana<br/>可视化面板]
+        ALERTMANAGER[🚨 AlertManager<br/>告警管理]
+        ELK[📋 ELK Stack<br/>日志分析]
+    end
+
+    subgraph "🔒 安全层"
+        VAULT[🔐 HashiCorp Vault<br/>密钥管理]
+        OAUTH[🎫 OAuth2/OIDC<br/>身份认证]
+    end
+
+    %% 连接关系
+    LB --> APP1
+    LB --> APP2
+    LB --> APP3
+
+    APP1 --> MYSQL_M
+    APP2 --> MYSQL_M
+    APP3 --> MYSQL_M
+
+    MYSQL_M --> MYSQL_S1
+    MYSQL_M --> MYSQL_S2
+
+    APP1 --> RABBIT1
+    APP2 --> RABBIT2
+    APP3 --> RABBIT3
+
+    RABBIT1 -.-> RABBIT2
+    RABBIT2 -.-> RABBIT3
+    RABBIT3 -.-> RABBIT1
+
+    APP1 --> MONGO1
+    APP2 --> MONGO1
+    APP3 --> MONGO1
+
+    MONGO1 --> MONGO2
+    MONGO1 --> MONGO3
+
+    APP1 --> REDIS
+    APP2 --> REDIS
+    APP3 --> REDIS
+
+    APP1 --> PROMETHEUS
+    APP2 --> PROMETHEUS
+    APP3 --> PROMETHEUS
+
+    PROMETHEUS --> GRAFANA
+    PROMETHEUS --> ALERTMANAGER
+
+    APP1 --> ELK
+    APP2 --> ELK
+    APP3 --> ELK
+
+    APP1 --> VAULT
+    APP2 --> VAULT
+    APP3 --> VAULT
+
+    APP1 --> OAUTH
+    APP2 --> OAUTH
+    APP3 --> OAUTH
+
+    %% 样式定义
+    classDef loadBalancer fill:#e1f5fe,stroke:#0277bd,stroke-width:3px
+    classDef application fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef database fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+    classDef messaging fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef monitoring fill:#e0f2f1,stroke:#00695c,stroke-width:2px
+    classDef security fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    classDef storage fill:#f1f8e9,stroke:#558b2f,stroke-width:2px
+
+    class LB loadBalancer
+    class APP1,APP2,APP3 application
+    class MYSQL_M,MYSQL_S1,MYSQL_S2 database
+    class RABBIT1,RABBIT2,RABBIT3 messaging
+    class PROMETHEUS,GRAFANA,ALERTMANAGER,ELK monitoring
+    class VAULT,OAUTH security
+    class MONGO1,MONGO2,MONGO3,REDIS storage
+```
+
+### 7.4 监控和告警
 
 #### 7.3.1 Prometheus配置
 
