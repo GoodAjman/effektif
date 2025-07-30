@@ -173,67 +173,1336 @@ sequenceDiagram
 
 ```mermaid
 sequenceDiagram
-    participant MQ as 📨 消息队列<br/>(RabbitMQ/Kafka)
-    participant Listener as 👂 MessageListener
+    participant MQ as 📨 消息队列
     participant Processor as 📨 MQTriggerProcessor
     participant Engine as 🚀 WorkflowEngine
-    participant Instance as 📋 WorkflowInstance
     participant DB as 💾 Database
-    participant DLQ as ☠️ 死信队列
 
-    Note over MQ,DLQ: 消息队列触发器处理流程（含错误处理）
+    MQ->>+Processor: 📬 接收消息
+    Processor->>Processor: 🔍 消息验证和去重
+    Processor->>Processor: 📊 解析消息数据
+    Processor->>+Engine: 🚀 启动工作流
 
-    MQ->>+Listener: 📬 接收消息
-    Note right of MQ: 消息包含业务数据
-
-    Listener->>+Processor: 📝 onMessage(message)
-
-    alt 消息去重检查
-        Processor->>Processor: 🔍 isDuplicateMessage(message)
-        Note right of Processor: 基于消息ID或自定义键去重
-    end
-
-    Processor->>Processor: 📊 parseMessageData(message)
-    Note right of Processor: 解析消息内容和元数据
-
-    Processor->>+Engine: 🚀 start(triggerInstance)
-    Note right of Processor: 创建TriggerInstance并设置消息数据
-
-    alt 工作流执行成功
-        Engine->>+Instance: 📋 创建工作流实例
-        Instance->>Instance: ⚙️ 执行工作流逻辑
-        Instance-->>-Engine: ✅ 执行成功
-        Engine-->>-Processor: 🎯 返回工作流实例ID
-
-        Processor->>+DB: 📝 记录成功日志
-        DB-->>-Processor: ✅ 日志记录完成
-
-        Processor-->>-Listener: ✅ 处理成功
-        Listener->>MQ: 👍 ACK消息
-
-    else 工作流执行失败
+    alt 执行成功
+        Engine-->>-Processor: ✅ 执行成功
+        Processor->>+DB: 📝 记录日志
+        DB-->>-Processor: ✅ 完成
+        Processor->>MQ: 👍 ACK消息
+    else 执行失败
         Engine-->>Processor: ❌ 执行失败
+        alt 重试未达上限
+            Processor->>MQ: 🔄 NACK重试
+        else 重试达上限
+            Processor->>MQ: ☠️ 发送到死信队列
+        end
+    end
+```
 
-        alt 重试次数未达上限
-            Processor->>Processor: 🔄 增加重试计数
-            Note right of Processor: 等待重试间隔后重新处理
-            Processor-->>Listener: 🔄 NACK消息（重新入队）
-        else 重试次数已达上限
-            Processor->>+DB: 📝 记录失败日志
-            DB-->>-Processor: ✅ 日志记录完成
+## 3. 集成平台2.0动态编排Trigger节点设计
 
-            Processor->>DLQ: ☠️ 发送到死信队列
-            Processor-->>-Listener: ❌ 处理失败
-            Listener->>MQ: 👎 ACK消息（移除）
+### 3.1 概述
+
+基于集成平台2.0的动态编排需求，参考Zapier和n8n的设计理念，设计一套完整的Trigger节点系统。该系统支持数据拉取策略、数组传递、上下文传递等核心功能，实现类似Zapier的自动化工作流编排能力。
+
+### 3.2 核心设计理念
+
+#### 3.2.1 参考Zapier设计模式
+- **Trigger + Action模式**: 一个集成流 = 一个Trigger + 一个或多个Action
+- **数据自动拆分**: Trigger接收到批量数据时自动拆解为单条数据
+- **上下文传递**: 每个节点的输出作为下个节点的输入
+- **轮询分页支持**: 支持API分页拉取大量数据
+
+#### 3.2.2 参考n8n设计模式
+- **节点化编程**: 每个节点都是独立的处理单元
+- **数据流管道**: 数据在节点间流转，支持复杂的数据转换
+- **表达式引擎**: 支持JavaScript表达式进行数据映射和转换
+- **错误处理**: 完善的错误处理和重试机制
+
+### 3.3 Trigger节点架构设计
+
+```mermaid
+graph TB
+    subgraph "🎯 Trigger节点核心架构"
+        subgraph "📥 数据获取层"
+            A1[🔄 轮询触发器<br/>PollingTrigger]
+            A2[📨 推送触发器<br/>WebhookTrigger]
+            A3[⏰ 定时触发器<br/>ScheduledTrigger]
+            A4[📁 文件触发器<br/>FileTrigger]
+        end
+
+        subgraph "🔧 数据处理层"
+            B1[📊 数据解析器<br/>DataParser]
+            B2[🔀 数据拆分器<br/>DataSplitter]
+            B3[🎯 数据过滤器<br/>DataFilter]
+            B4[📋 分页处理器<br/>PaginationHandler]
+        end
+
+        subgraph "💾 上下文管理层"
+            C1[🗂️ 执行上下文<br/>ExecutionContext]
+            C2[🔗 数据映射器<br/>DataMapper]
+            C3[📝 变量管理器<br/>VariableManager]
+            C4[🔄 状态管理器<br/>StateManager]
+        end
+
+        subgraph "🚀 流程编排层"
+            D1[⚙️ 工作流引擎<br/>WorkflowEngine]
+            D2[🎭 节点执行器<br/>NodeExecutor]
+            D3[🔀 条件路由器<br/>ConditionalRouter]
+            D4[📊 结果聚合器<br/>ResultAggregator]
         end
     end
 
-    Note over MQ,DLQ: 支持消息确认、重试机制和死信队列
+    A1 --> B1
+    A2 --> B1
+    A3 --> B1
+    A4 --> B1
+
+    B1 --> B2
+    B2 --> B3
+    B3 --> B4
+
+    B4 --> C1
+    C1 --> C2
+    C2 --> C3
+    C3 --> C4
+
+    C4 --> D1
+    D1 --> D2
+    D2 --> D3
+    D3 --> D4
+
+    classDef dataLayer fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef processLayer fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef contextLayer fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef orchestrationLayer fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+
+    class A1,A2,A3,A4 dataLayer
+    class B1,B2,B3,B4 processLayer
+    class C1,C2,C3,C4 contextLayer
+    class D1,D2,D3,D4 orchestrationLayer
 ```
 
-## 3. 关键数据结构和方法描述
+### 3.4 数据拉取策略设计
 
-### 3.1 核心类图
+#### 3.4.1 轮询策略（Polling Strategy）
+
+```mermaid
+sequenceDiagram
+    participant Scheduler as ⏰ 调度器
+    participant Trigger as 🎯 PollingTrigger
+    participant API as 🌐 外部API
+    participant Parser as 📊 数据解析器
+    participant Splitter as 🔀 数据拆分器
+    participant Engine as 🚀 工作流引擎
+
+    Note over Scheduler,Engine: 轮询数据拉取策略
+
+    loop 定时轮询
+        Scheduler->>+Trigger: 🔄 触发轮询任务
+
+        Trigger->>Trigger: 📋 检查上次拉取状态
+        Note right of Trigger: 获取lastPollTime, cursor等
+
+        Trigger->>+API: 📡 发起API请求
+        Note right of Trigger: 带上分页参数和过滤条件
+
+        API-->>-Trigger: 📦 返回数据响应
+
+        alt 有新数据
+            Trigger->>+Parser: 📊 解析响应数据
+            Parser->>Parser: 🔍 验证数据格式
+            Parser-->>-Trigger: ✅ 解析完成
+
+            Trigger->>+Splitter: 🔀 拆分批量数据
+            Note right of Splitter: 将数组拆分为单条记录
+
+            loop 处理每条数据
+                Splitter->>+Engine: 🚀 启动工作流实例
+                Note right of Splitter: 传递单条数据和上下文
+                Engine-->>-Splitter: ✅ 处理完成
+            end
+
+            Splitter-->>-Trigger: 📈 返回处理统计
+
+            Trigger->>Trigger: 💾 更新拉取状态
+            Note right of Trigger: 更新lastPollTime, cursor等
+
+        else 无新数据
+            Trigger->>Trigger: ⏭️ 跳过本次处理
+        end
+
+        Trigger-->>-Scheduler: ✅ 轮询完成
+    end
+```
+
+#### 3.4.2 分页拉取策略
+
+```mermaid
+sequenceDiagram
+    participant Trigger as 🎯 Trigger节点
+    participant PaginationHandler as 📋 分页处理器
+    participant API as 🌐 外部API
+    participant DataBuffer as 🗂️ 数据缓冲区
+    participant Engine as 🚀 工作流引擎
+
+    Note over Trigger,Engine: 分页数据拉取策略
+
+    Trigger->>+PaginationHandler: 🔄 开始分页拉取
+
+    PaginationHandler->>PaginationHandler: 📊 初始化分页参数
+    Note right of PaginationHandler: page=1, pageSize=100, hasMore=true
+
+    loop 分页拉取循环
+        PaginationHandler->>+API: 📡 请求分页数据
+        Note right of PaginationHandler: GET /api/data?page=1&size=100
+
+        API-->>-PaginationHandler: 📦 返回分页响应
+
+        PaginationHandler->>PaginationHandler: 🔍 检查响应数据
+
+        alt 有数据返回
+            PaginationHandler->>+DataBuffer: 📥 缓存数据
+            DataBuffer-->>-PaginationHandler: ✅ 缓存完成
+
+            PaginationHandler->>PaginationHandler: 📈 更新分页状态
+            Note right of PaginationHandler: page++, 检查hasMore标志
+
+            alt 达到批次大小或最后一页
+                PaginationHandler->>+DataBuffer: 📤 获取缓存数据
+                DataBuffer-->>-PaginationHandler: 📊 返回数据批次
+
+                PaginationHandler->>+Engine: 🚀 处理数据批次
+                Engine-->>-PaginationHandler: ✅ 处理完成
+
+                PaginationHandler->>DataBuffer: 🗑️ 清空缓冲区
+            end
+
+        else 无数据或错误
+            PaginationHandler->>PaginationHandler: ⏹️ 结束分页拉取
+        end
+    end
+
+    PaginationHandler-->>-Trigger: 📊 返回拉取统计
+```
+
+### 3.5 数据数组传递策略
+
+#### 3.5.1 数据拆分策略对比
+
+基于集成平台2.0文档，参考Zapier的设计，支持两种数据传递策略：
+
+**策略1：顺序执行模式**
+- 集成流顺序执行，第一个节点就是trigger节点
+- 从trigger节点顺序往下执行
+- 适合简单的线性处理流程
+
+**策略2：数据驱动模式（推荐）**
+- trigger节点挑出来，拿到数据后，再启动集成流
+- 执行其它节点，实现数据驱动的工作流
+- 对用户配置相对友好，隐藏复杂的语义
+
+```mermaid
+graph TB
+    subgraph "策略1：顺序执行模式"
+        A1[🎯 Trigger节点] --> A2[⚙️ Action节点1]
+        A2 --> A3[⚙️ Action节点2]
+        A3 --> A4[⚙️ Action节点3]
+
+        A5[📊 数据: [item1, item2, item3]]
+        A5 --> A1
+
+        Note1[❌ 问题：批量数据处理复杂<br/>❌ 错误处理困难<br/>❌ 部分失败难以处理]
+    end
+
+    subgraph "策略2：数据驱动模式（推荐）"
+        B1[🎯 Trigger节点<br/>数据拆分器]
+        B2[📊 数据: [item1, item2, item3]]
+        B2 --> B1
+
+        B1 --> B3[🚀 工作流实例1<br/>item1]
+        B1 --> B4[🚀 工作流实例2<br/>item2]
+        B1 --> B5[🚀 工作流实例3<br/>item3]
+
+        B3 --> B6[⚙️ Action节点1]
+        B4 --> B7[⚙️ Action节点1]
+        B5 --> B8[⚙️ Action节点1]
+
+        Note2[✅ 优势：独立处理每条数据<br/>✅ 错误隔离<br/>✅ 并行处理能力]
+    end
+
+    classDef strategy1 fill:#ffebee,stroke:#c62828,stroke-width:2px
+    classDef strategy2 fill:#e8f5e8,stroke:#2e7d32,stroke-width:2px
+    classDef problem fill:#fff3e0,stroke:#ef6c00,stroke-width:1px
+    classDef advantage fill:#e3f2fd,stroke:#1565c0,stroke-width:1px
+
+    class A1,A2,A3,A4,A5 strategy1
+    class B1,B2,B3,B4,B5,B6,B7,B8 strategy2
+    class Note1 problem
+    class Note2 advantage
+```
+
+#### 3.5.2 数据拆分处理时序图
+
+```mermaid
+sequenceDiagram
+    participant Trigger as 🎯 Trigger节点
+    participant Splitter as 🔀 数据拆分器
+    participant Context as 🗂️ 执行上下文
+    participant Engine as 🚀 工作流引擎
+    participant Monitor as 📊 监控系统
+
+    Note over Trigger,Monitor: 数据数组拆分处理流程
+
+    Trigger->>+Splitter: 📦 传入批量数据
+    Note right of Trigger: 数据格式：[{id:1,name:"A"},{id:2,name:"B"}]
+
+    Splitter->>Splitter: 🔍 验证数据格式
+    Note right of Splitter: 确保是JSON数组格式
+
+    alt 数据格式正确
+        loop 遍历数组元素
+            Splitter->>+Context: 🗂️ 创建执行上下文
+            Note right of Splitter: 为每条数据创建独立上下文
+
+            Context->>Context: 📝 设置上下文变量
+            Note right of Context: 设置item数据、索引、总数等
+
+            Context-->>-Splitter: ✅ 上下文创建完成
+
+            Splitter->>+Engine: 🚀 启动工作流实例
+            Note right of Splitter: 传递单条数据和上下文
+
+            par 并行处理
+                Engine->>Engine: ⚙️ 执行Action节点
+                Engine->>+Monitor: 📈 上报执行指标
+                Monitor-->>-Engine: ✅ 指标记录完成
+            end
+
+            alt 处理成功
+                Engine-->>Splitter: ✅ 实例执行成功
+                Splitter->>Splitter: 📊 记录成功统计
+            else 处理失败
+                Engine-->>Splitter: ❌ 实例执行失败
+                Splitter->>Splitter: 📊 记录失败统计
+
+                alt 启用错误隔离
+                    Splitter->>Splitter: ⏭️ 继续处理下一条
+                    Note right of Splitter: 错误不影响其他数据处理
+                else 启用快速失败
+                    Splitter->>Splitter: ⏹️ 停止后续处理
+                end
+            end
+        end
+
+        Splitter->>Splitter: 📊 汇总处理结果
+        Splitter-->>-Trigger: 📈 返回处理统计
+
+    else 数据格式错误
+        Splitter-->>-Trigger: ❌ 数据格式验证失败
+    end
+```
+
+### 3.6 上下文传递机制设计
+
+#### 3.6.1 执行上下文结构
+
+```mermaid
+classDiagram
+    class ExecutionContext {
+        +String workflowId
+        +String instanceId
+        +String tenantId
+        +String traceId
+        +Map~String,Object~ globalVariables
+        +Map~String,Object~ nodeOutputs
+        +Map~String,Object~ triggerData
+        +ExecutionMetadata metadata
+        +ErrorContext errorContext
+
+        +setVariable(key, value)
+        +getVariable(key)
+        +setNodeOutput(nodeId, output)
+        +getNodeOutput(nodeId)
+        +addError(error)
+        +hasErrors()
+    }
+
+    class ExecutionMetadata {
+        +Long startTime
+        +Long endTime
+        +String status
+        +Integer currentStep
+        +Integer totalSteps
+        +Map~String,Object~ metrics
+    }
+
+    class ErrorContext {
+        +List~ExecutionError~ errors
+        +String lastErrorMessage
+        +Integer retryCount
+        +Boolean canRetry
+
+        +addError(error)
+        +getLastError()
+        +shouldRetry()
+    }
+
+    class TriggerData {
+        +Object originalData
+        +Object currentItem
+        +Integer itemIndex
+        +Integer totalItems
+        +Map~String,Object~ metadata
+
+        +isArrayData()
+        +getCurrentItem()
+        +hasMoreItems()
+    }
+
+    ExecutionContext --> ExecutionMetadata
+    ExecutionContext --> ErrorContext
+    ExecutionContext --> TriggerData
+```
+
+#### 3.6.2 上下文传递时序图
+
+```mermaid
+sequenceDiagram
+    participant Trigger as 🎯 Trigger节点
+    participant Context as 🗂️ 执行上下文
+    participant Action1 as ⚙️ Action节点1
+    participant Action2 as ⚙️ Action节点2
+    participant Mapper as 🔗 数据映射器
+    participant Engine as 🚀 工作流引擎
+
+    Note over Trigger,Engine: 上下文传递机制
+
+    Trigger->>+Context: 🗂️ 初始化执行上下文
+    Note right of Trigger: 设置triggerData和全局变量
+
+    Context->>Context: 📝 设置初始变量
+    Note right of Context: workflowId, instanceId, triggerData等
+
+    Context-->>-Trigger: ✅ 上下文初始化完成
+
+    Trigger->>+Engine: 🚀 启动工作流
+    Note right of Trigger: 传递执行上下文
+
+    Engine->>+Action1: ⚙️ 执行第一个Action
+    Note right of Engine: 传递当前上下文
+
+    Action1->>+Context: 📖 读取上下文数据
+    Context-->>-Action1: 📊 返回所需数据
+
+    Action1->>Action1: 🔧 执行业务逻辑
+
+    Action1->>+Context: 💾 保存输出结果
+    Note right of Action1: 将处理结果存入上下文
+    Context-->>-Action1: ✅ 结果保存完成
+
+    Action1-->>-Engine: ✅ Action1执行完成
+
+    Engine->>+Mapper: 🔗 数据映射
+    Note right of Engine: 映射Action1输出到Action2输入
+
+    Mapper->>+Context: 📖 获取Action1输出
+    Context-->>-Mapper: 📊 返回输出数据
+
+    Mapper->>Mapper: 🔄 执行数据转换
+    Note right of Mapper: 支持JavaScript表达式
+
+    Mapper->>+Context: 💾 设置映射结果
+    Context-->>-Mapper: ✅ 映射完成
+
+    Mapper-->>-Engine: ✅ 数据映射完成
+
+    Engine->>+Action2: ⚙️ 执行第二个Action
+
+    Action2->>+Context: 📖 读取映射后的数据
+    Context-->>-Action2: 📊 返回输入数据
+
+    Action2->>Action2: 🔧 执行业务逻辑
+
+    Action2->>+Context: 💾 保存最终结果
+    Context-->>-Action2: ✅ 结果保存完成
+
+    Action2-->>-Engine: ✅ Action2执行完成
+
+    Engine-->>-Trigger: 🎯 工作流执行完成
+```
+
+### 3.7 Trigger节点技术实现
+
+#### 3.7.1 核心接口设计
+
+<augment_code_snippet path="src/main/java/com/effektif/workflow/api/trigger/TriggerNode.java" mode="EXCERPT">
+```java
+/**
+ * Trigger节点核心接口
+ * 参考Zapier和n8n设计理念
+ */
+public interface TriggerNode {
+
+    /**
+     * 数据拉取策略枚举
+     */
+    enum PullStrategy {
+        POLLING,    // 轮询拉取
+        WEBHOOK,    // Webhook推送
+        SCHEDULED,  // 定时触发
+        FILE_WATCH  // 文件监听
+    }
+
+    /**
+     * 数据处理策略枚举
+     */
+    enum DataStrategy {
+        SEQUENTIAL,  // 顺序处理（策略1）
+        SPLIT_ARRAY  // 数组拆分（策略2，推荐）
+    }
+
+    /**
+     * 初始化Trigger节点
+     */
+    void initialize(TriggerConfig config);
+
+    /**
+     * 启动数据拉取
+     */
+    CompletableFuture<TriggerResult> startPulling();
+
+    /**
+     * 停止数据拉取
+     */
+    void stopPulling();
+
+    /**
+     * 处理拉取到的数据
+     */
+    List<WorkflowInstance> processData(Object data, ExecutionContext context);
+
+    /**
+     * 获取拉取状态
+     */
+    TriggerStatus getStatus();
+}
+```
+</augment_code_snippet>
+
+#### 3.7.2 轮询触发器实现
+
+<augment_code_snippet path="src/main/java/com/effektif/workflow/impl/trigger/PollingTrigger.java" mode="EXCERPT">
+```java
+/**
+ * 轮询触发器实现
+ * 支持分页拉取和数据拆分
+ */
+@Component
+public class PollingTrigger implements TriggerNode {
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    @Autowired
+    private DataSplitter dataSplitter;
+
+    @Autowired
+    private WorkflowEngine workflowEngine;
+
+    private TriggerConfig config;
+    private ScheduledExecutorService scheduler;
+    private volatile boolean isRunning = false;
+
+    @Override
+    public void initialize(TriggerConfig config) {
+        this.config = config;
+        this.scheduler = Executors.newScheduledThreadPool(1);
+    }
+
+    @Override
+    public CompletableFuture<TriggerResult> startPulling() {
+        isRunning = true;
+
+        return CompletableFuture.supplyAsync(() -> {
+            scheduler.scheduleWithFixedDelay(
+                this::pollData,
+                0,
+                config.getPollInterval(),
+                TimeUnit.SECONDS
+            );
+            return TriggerResult.success("Polling started");
+        });
+    }
+
+    private void pollData() {
+        try {
+            // 1. 构建请求参数
+            Map<String, Object> params = buildRequestParams();
+
+            // 2. 发起API请求
+            ResponseEntity<String> response = restTemplate.exchange(
+                config.getApiUrl(),
+                HttpMethod.GET,
+                buildHttpEntity(params),
+                String.class
+            );
+
+            // 3. 解析响应数据
+            Object data = parseResponse(response.getBody());
+
+            // 4. 检查是否有新数据
+            if (hasNewData(data)) {
+                // 5. 创建执行上下文
+                ExecutionContext context = createExecutionContext(data);
+
+                // 6. 处理数据
+                processData(data, context);
+
+                // 7. 更新拉取状态
+                updatePollState(data);
+            }
+
+        } catch (Exception e) {
+            log.error("Polling failed", e);
+            handlePollingError(e);
+        }
+    }
+
+    @Override
+    public List<WorkflowInstance> processData(Object data, ExecutionContext context) {
+        List<WorkflowInstance> instances = new ArrayList<>();
+
+        if (config.getDataStrategy() == DataStrategy.SPLIT_ARRAY) {
+            // 数组拆分策略
+            List<Object> items = dataSplitter.splitArray(data);
+
+            for (int i = 0; i < items.size(); i++) {
+                Object item = items.get(i);
+
+                // 为每个数据项创建独立的上下文
+                ExecutionContext itemContext = context.createChildContext();
+                itemContext.setTriggerData(new TriggerData(item, i, items.size()));
+
+                // 启动工作流实例
+                WorkflowInstance instance = workflowEngine.start(
+                    config.getWorkflowId(),
+                    itemContext
+                );
+                instances.add(instance);
+            }
+        } else {
+            // 顺序处理策略
+            WorkflowInstance instance = workflowEngine.start(
+                config.getWorkflowId(),
+                context
+            );
+            instances.add(instance);
+        }
+
+        return instances;
+    }
+}
+```
+</augment_code_snippet>
+
+#### 3.7.3 数据拆分器实现
+
+<augment_code_snippet path="src/main/java/com/effektif/workflow/impl/data/DataSplitter.java" mode="EXCERPT">
+```java
+/**
+ * 数据拆分器
+ * 实现Zapier风格的数据自动拆分
+ */
+@Component
+public class DataSplitter {
+
+    private final ObjectMapper objectMapper;
+
+    public DataSplitter(ObjectMapper objectMapper) {
+        this.objectMapper = objectMapper;
+    }
+
+    /**
+     * 拆分数组数据
+     * @param data 原始数据
+     * @return 拆分后的数据列表
+     */
+    public List<Object> splitArray(Object data) {
+        List<Object> result = new ArrayList<>();
+
+        if (data == null) {
+            return result;
+        }
+
+        try {
+            if (data instanceof List) {
+                // 直接是List类型
+                result.addAll((List<?>) data);
+            } else if (data instanceof String) {
+                // JSON字符串，尝试解析为数组
+                JsonNode jsonNode = objectMapper.readTree((String) data);
+                if (jsonNode.isArray()) {
+                    for (JsonNode item : jsonNode) {
+                        result.add(objectMapper.treeToValue(item, Object.class));
+                    }
+                } else {
+                    // 不是数组，作为单个元素
+                    result.add(objectMapper.treeToValue(jsonNode, Object.class));
+                }
+            } else {
+                // 其他类型，作为单个元素
+                result.add(data);
+            }
+        } catch (Exception e) {
+            log.warn("Failed to split data, treating as single item", e);
+            result.add(data);
+        }
+
+        return result;
+    }
+
+    /**
+     * 验证数据是否为数组格式
+     */
+    public boolean isArrayData(Object data) {
+        if (data instanceof List) {
+            return true;
+        }
+
+        if (data instanceof String) {
+            try {
+                JsonNode jsonNode = objectMapper.readTree((String) data);
+                return jsonNode.isArray();
+            } catch (Exception e) {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * 获取数组大小
+     */
+    public int getArraySize(Object data) {
+        List<Object> items = splitArray(data);
+        return items.size();
+    }
+}
+```
+</augment_code_snippet>
+
+### 3.8 分页处理器设计
+
+#### 3.8.1 分页处理器接口
+
+<augment_code_snippet path="src/main/java/com/effektif/workflow/api/pagination/PaginationHandler.java" mode="EXCERPT">
+```java
+/**
+ * 分页处理器接口
+ * 支持多种分页策略
+ */
+public interface PaginationHandler {
+
+    /**
+     * 分页策略枚举
+     */
+    enum PaginationStrategy {
+        OFFSET_LIMIT,    // offset + limit
+        PAGE_SIZE,       // page + size
+        CURSOR_BASED,    // cursor based
+        LINK_HEADER      // Link header
+    }
+
+    /**
+     * 分页配置
+     */
+    class PaginationConfig {
+        private PaginationStrategy strategy;
+        private int pageSize = 100;
+        private String pageParam = "page";
+        private String sizeParam = "size";
+        private String cursorParam = "cursor";
+        private String totalCountPath = "total";
+        private String dataPath = "data";
+        private boolean enableAutoDetection = true;
+
+        // getters and setters...
+    }
+
+    /**
+     * 分页结果
+     */
+    class PaginationResult {
+        private List<Object> data;
+        private boolean hasMore;
+        private String nextCursor;
+        private int totalCount;
+        private int currentPage;
+
+        // getters and setters...
+    }
+
+    /**
+     * 执行分页拉取
+     */
+    CompletableFuture<List<PaginationResult>> fetchAllPages(
+        String apiUrl,
+        Map<String, Object> baseParams,
+        PaginationConfig config
+    );
+
+    /**
+     * 获取单页数据
+     */
+    PaginationResult fetchSinglePage(
+        String apiUrl,
+        Map<String, Object> params,
+        PaginationConfig config
+    );
+}
+```
+</augment_code_snippet>
+
+### 3.9 Trigger配置管理
+
+#### 3.9.1 配置结构设计
+
+<augment_code_snippet path="src/main/java/com/effektif/workflow/api/config/TriggerConfig.java" mode="EXCERPT">
+```java
+/**
+ * Trigger节点配置
+ * 支持多种触发器类型的统一配置
+ */
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class TriggerConfig {
+
+    // 基础配置
+    private String triggerId;
+    private String triggerName;
+    private String workflowId;
+    private TriggerNode.PullStrategy pullStrategy;
+    private TriggerNode.DataStrategy dataStrategy;
+    private boolean enabled = true;
+
+    // 轮询配置
+    private PollingConfig polling;
+
+    // Webhook配置
+    private WebhookConfig webhook;
+
+    // 定时配置
+    private ScheduleConfig schedule;
+
+    // 数据处理配置
+    private DataProcessingConfig dataProcessing;
+
+    // 分页配置
+    private PaginationHandler.PaginationConfig pagination;
+
+    // 错误处理配置
+    private ErrorHandlingConfig errorHandling;
+
+    // 监控配置
+    private MonitoringConfig monitoring;
+
+    @Data
+    @Builder
+    public static class PollingConfig {
+        private String apiUrl;
+        private int pollInterval = 60; // 秒
+        private Map<String, String> headers;
+        private Map<String, Object> queryParams;
+        private String httpMethod = "GET";
+        private int timeout = 30000; // 毫秒
+        private String lastPollTimeField = "lastPollTime";
+        private String cursorField = "cursor";
+    }
+
+    @Data
+    @Builder
+    public static class WebhookConfig {
+        private String webhookUrl;
+        private String secret;
+        private List<String> allowedIps;
+        private Map<String, String> headers;
+        private boolean validateSignature = true;
+        private String signatureHeader = "X-Signature";
+    }
+
+    @Data
+    @Builder
+    public static class DataProcessingConfig {
+        private String dataPath = "data"; // JSON路径
+        private List<String> filterFields; // 过滤字段
+        private Map<String, String> fieldMapping; // 字段映射
+        private boolean enableDeduplication = true;
+        private String deduplicationKey = "id";
+        private int maxBatchSize = 1000;
+    }
+
+    @Data
+    @Builder
+    public static class ErrorHandlingConfig {
+        private int maxRetries = 3;
+        private int retryInterval = 60; // 秒
+        private boolean enableDeadLetterQueue = true;
+        private String deadLetterQueueName;
+        private boolean stopOnError = false;
+        private List<String> retryableErrors;
+    }
+
+    @Data
+    @Builder
+    public static class MonitoringConfig {
+        private boolean enableMetrics = true;
+        private boolean enableAlerts = true;
+        private int alertThreshold = 10; // 连续失败次数
+        private List<String> alertChannels; // 告警渠道
+        private Map<String, Object> customMetrics;
+    }
+}
+```
+</augment_code_snippet>
+
+#### 3.9.2 配置管理服务
+
+<augment_code_snippet path="src/main/java/com/effektif/workflow/service/TriggerConfigService.java" mode="EXCERPT">
+```java
+/**
+ * Trigger配置管理服务
+ */
+@Service
+@Transactional
+public class TriggerConfigService {
+
+    @Autowired
+    private TriggerConfigRepository configRepository;
+
+    @Autowired
+    private TriggerRegistry triggerRegistry;
+
+    @Autowired
+    private ValidationService validationService;
+
+    /**
+     * 创建Trigger配置
+     */
+    public TriggerConfig createTriggerConfig(CreateTriggerRequest request) {
+        // 1. 验证配置
+        validationService.validateTriggerConfig(request);
+
+        // 2. 构建配置对象
+        TriggerConfig config = TriggerConfig.builder()
+            .triggerId(generateTriggerId())
+            .triggerName(request.getName())
+            .workflowId(request.getWorkflowId())
+            .pullStrategy(request.getPullStrategy())
+            .dataStrategy(request.getDataStrategy())
+            .polling(request.getPollingConfig())
+            .webhook(request.getWebhookConfig())
+            .dataProcessing(request.getDataProcessingConfig())
+            .errorHandling(request.getErrorHandlingConfig())
+            .monitoring(request.getMonitoringConfig())
+            .enabled(true)
+            .build();
+
+        // 3. 保存配置
+        config = configRepository.save(config);
+
+        // 4. 注册到触发器注册表
+        triggerRegistry.register(config);
+
+        return config;
+    }
+
+    /**
+     * 启动Trigger
+     */
+    public void startTrigger(String triggerId) {
+        TriggerConfig config = getTriggerConfig(triggerId);
+
+        if (!config.isEnabled()) {
+            throw new IllegalStateException("Trigger is disabled: " + triggerId);
+        }
+
+        TriggerNode trigger = triggerRegistry.getTrigger(triggerId);
+        if (trigger == null) {
+            throw new IllegalStateException("Trigger not found: " + triggerId);
+        }
+
+        trigger.startPulling();
+
+        // 更新状态
+        updateTriggerStatus(triggerId, TriggerStatus.RUNNING);
+    }
+
+    /**
+     * 停止Trigger
+     */
+    public void stopTrigger(String triggerId) {
+        TriggerNode trigger = triggerRegistry.getTrigger(triggerId);
+        if (trigger != null) {
+            trigger.stopPulling();
+        }
+
+        updateTriggerStatus(triggerId, TriggerStatus.STOPPED);
+    }
+}
+```
+</augment_code_snippet>
+
+### 3.10 监控和告警系统
+
+#### 3.10.1 监控指标设计
+
+```mermaid
+graph TB
+    subgraph "📊 Trigger监控指标体系"
+        subgraph "🔢 基础指标"
+            M1[📈 拉取次数<br/>pull_count]
+            M2[📊 成功次数<br/>success_count]
+            M3[❌ 失败次数<br/>error_count]
+            M4[⏱️ 平均响应时间<br/>avg_response_time]
+        end
+
+        subgraph "📋 数据指标"
+            M5[📦 数据总量<br/>total_data_count]
+            M6[🔀 拆分数量<br/>split_count]
+            M7[✅ 处理成功数<br/>processed_success]
+            M8[❌ 处理失败数<br/>processed_error]
+        end
+
+        subgraph "⚡ 性能指标"
+            M9[🚀 吞吐量<br/>throughput_per_sec]
+            M10[⏳ 延迟分布<br/>latency_percentiles]
+            M11[💾 内存使用<br/>memory_usage]
+            M12[🔄 重试次数<br/>retry_count]
+        end
+
+        subgraph "🏥 健康指标"
+            M13[💚 健康状态<br/>health_status]
+            M14[⚠️ 告警次数<br/>alert_count]
+            M15[🔧 最后执行时间<br/>last_execution_time]
+            M16[📊 可用性<br/>availability_rate]
+        end
+    end
+
+    classDef basicMetrics fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef dataMetrics fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef performanceMetrics fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef healthMetrics fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+
+    class M1,M2,M3,M4 basicMetrics
+    class M5,M6,M7,M8 dataMetrics
+    class M9,M10,M11,M12 performanceMetrics
+    class M13,M14,M15,M16 healthMetrics
+```
+
+#### 3.10.2 告警规则配置
+
+<augment_code_snippet path="src/main/java/com/effektif/workflow/monitoring/AlertRule.java" mode="EXCERPT">
+```java
+/**
+ * 告警规则配置
+ */
+@Data
+@Builder
+public class AlertRule {
+
+    public enum AlertLevel {
+        INFO, WARNING, ERROR, CRITICAL
+    }
+
+    public enum AlertCondition {
+        GREATER_THAN,
+        LESS_THAN,
+        EQUALS,
+        NOT_EQUALS,
+        CONTAINS,
+        REGEX_MATCH
+    }
+
+    private String ruleId;
+    private String ruleName;
+    private String triggerId;
+    private String metricName;
+    private AlertCondition condition;
+    private Object threshold;
+    private AlertLevel level;
+    private int evaluationWindow = 300; // 秒
+    private int cooldownPeriod = 600; // 秒
+    private boolean enabled = true;
+
+    // 告警通知配置
+    private List<String> notificationChannels;
+    private String messageTemplate;
+    private Map<String, Object> customFields;
+
+    /**
+     * 评估告警条件
+     */
+    public boolean evaluate(Object metricValue) {
+        if (metricValue == null || threshold == null) {
+            return false;
+        }
+
+        switch (condition) {
+            case GREATER_THAN:
+                return compareNumbers(metricValue, threshold) > 0;
+            case LESS_THAN:
+                return compareNumbers(metricValue, threshold) < 0;
+            case EQUALS:
+                return Objects.equals(metricValue, threshold);
+            case NOT_EQUALS:
+                return !Objects.equals(metricValue, threshold);
+            case CONTAINS:
+                return metricValue.toString().contains(threshold.toString());
+            case REGEX_MATCH:
+                return metricValue.toString().matches(threshold.toString());
+            default:
+                return false;
+        }
+    }
+
+    private int compareNumbers(Object value1, Object value2) {
+        if (value1 instanceof Number && value2 instanceof Number) {
+            double d1 = ((Number) value1).doubleValue();
+            double d2 = ((Number) value2).doubleValue();
+            return Double.compare(d1, d2);
+        }
+        return 0;
+    }
+}
+```
+</augment_code_snippet>
+
+## 4. 系统集成和部署方案
+
+### 4.1 与现有系统集成
+
+#### 4.1.1 与Effektif工作流引擎集成
+
+基于现有的Effektif架构，Trigger节点需要与以下组件进行深度集成：
+
+- **WorkflowEngine**: 工作流执行引擎
+- **BpmnReader/BpmnWriter**: BPMN流程定义读写
+- **TriggerInstance**: 触发器实例管理
+- **ExecutionContext**: 执行上下文管理
+
+#### 4.1.2 集成架构图
+
+```mermaid
+graph TB
+    subgraph "🎯 Trigger节点系统"
+        T1[🔄 PollingTrigger]
+        T2[📨 WebhookTrigger]
+        T3[⏰ ScheduledTrigger]
+        T4[📁 FileTrigger]
+    end
+
+    subgraph "⚙️ Effektif核心"
+        E1[🚀 WorkflowEngine]
+        E2[📋 TriggerInstance]
+        E3[🗂️ ExecutionContext]
+        E4[📊 BpmnReader/Writer]
+    end
+
+    subgraph "💾 数据存储"
+        D1[📊 MySQL数据库]
+        D2[🗄️ Redis缓存]
+        D3[📁 文件存储]
+    end
+
+    subgraph "🔧 外部系统"
+        X1[🌐 外部API]
+        X2[📨 消息队列]
+        X3[📁 文件系统]
+        X4[📊 监控系统]
+    end
+
+    T1 --> E1
+    T2 --> E1
+    T3 --> E1
+    T4 --> E1
+
+    E1 --> E2
+    E1 --> E3
+    E1 --> E4
+
+    E1 --> D1
+    E2 --> D2
+    E3 --> D2
+
+    T1 --> X1
+    T2 --> X2
+    T4 --> X3
+
+    E1 --> X4
+
+    classDef triggerSystem fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
+    classDef effektifCore fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    classDef dataStorage fill:#e8f5e8,stroke:#388e3c,stroke-width:2px
+    classDef externalSystem fill:#fff3e0,stroke:#f57c00,stroke-width:2px
+
+    class T1,T2,T3,T4 triggerSystem
+    class E1,E2,E3,E4 effektifCore
+    class D1,D2,D3 dataStorage
+    class X1,X2,X3,X4 externalSystem
+```
+
+### 4.2 部署架构设计
+
+#### 4.2.1 微服务部署架构
+
+```mermaid
+graph TB
+    subgraph "🌐 负载均衡层"
+        LB[⚖️ Nginx/HAProxy]
+    end
+
+    subgraph "🎯 Trigger服务集群"
+        TS1[🖥️ Trigger Service 1]
+        TS2[🖥️ Trigger Service 2]
+        TS3[🖥️ Trigger Service 3]
+    end
+
+    subgraph "⚙️ 工作流服务集群"
+        WS1[🚀 Workflow Service 1]
+        WS2[🚀 Workflow Service 2]
+        WS3[🚀 Workflow Service 3]
+    end
+
+    subgraph "📊 数据服务层"
+        DB[(🗄️ MySQL集群)]
+        REDIS[(🔴 Redis集群)]
+        MQ[📨 RabbitMQ集群]
+    end
+
+    subgraph "📈 监控服务"
+        PROM[📊 Prometheus]
+        GRAF[📈 Grafana]
+        ALERT[🚨 AlertManager]
+    end
+
+    subgraph "🔧 基础设施"
+        K8S[☸️ Kubernetes]
+        DOCKER[🐳 Docker]
+        CONSUL[🔍 Consul]
+    end
+
+    LB --> TS1
+    LB --> TS2
+    LB --> TS3
+
+    TS1 --> WS1
+    TS2 --> WS2
+    TS3 --> WS3
+
+    TS1 --> DB
+    TS1 --> REDIS
+    TS1 --> MQ
+
+    WS1 --> DB
+    WS1 --> REDIS
+
+    TS1 --> PROM
+    WS1 --> PROM
+    PROM --> GRAF
+    PROM --> ALERT
+
+    K8S --> TS1
+    K8S --> WS1
+    DOCKER --> K8S
+    CONSUL --> TS1
+```
+
+## 5. 原有系统核心类图和数据结构
+
+## 5. 总结与展望
+
+### 5.1 设计总结
+
+本文档基于集成平台2.0的动态编排需求，参考Zapier和n8n的设计理念，设计了一套完整的Trigger节点系统。主要特性包括：
+
+#### 5.1.1 核心特性
+✅ **多种触发策略**: 支持轮询、Webhook、定时、文件监听等多种触发方式
+✅ **数据自动拆分**: 参考Zapier设计，自动将批量数据拆分为单条处理
+✅ **上下文传递**: 完整的执行上下文管理，支持节点间数据流转
+✅ **分页支持**: 支持多种分页策略，处理大量数据拉取
+✅ **错误处理**: 完善的错误处理、重试机制和死信队列
+✅ **监控告警**: 全面的监控指标和告警规则配置
+
+#### 5.1.2 技术优势
+- **高可用**: 支持集群部署、故障切换和负载均衡
+- **高性能**: 支持并行处理、批量操作和性能优化
+- **易扩展**: 插件化架构，支持自定义触发器类型
+- **易配置**: 统一的配置管理和可视化配置界面
+- **易监控**: 完整的监控体系和告警机制
+
+#### 5.1.3 与现有系统集成
+- 与Effektif工作流引擎深度集成
+- 保持现有API兼容性
+- 支持渐进式迁移和部署
+
+### 5.2 实施建议
+
+#### 5.2.1 分阶段实施
+1. **第一阶段**: 实现基础的轮询触发器和数据拆分功能
+2. **第二阶段**: 添加Webhook触发器和分页支持
+3. **第三阶段**: 完善监控告警和高可用特性
+4. **第四阶段**: 优化性能和添加高级特性
+
+#### 5.2.2 技术选型建议
+- **开发语言**: Java 8+ (与现有系统保持一致)
+- **框架**: Spring Boot 2.x + Spring Cloud
+- **数据库**: MySQL 8.0 + Redis 6.x
+- **消息队列**: RabbitMQ 3.8+
+- **监控**: Prometheus + Grafana
+- **容器化**: Docker + Kubernetes
+
+#### 5.2.3 性能目标
+- **吞吐量**: 支持每秒处理1000+条数据
+- **延迟**: 平均响应时间 < 100ms
+- **可用性**: 99.9%以上的服务可用性
+- **扩展性**: 支持水平扩展到100+节点
+
+### 5.3 风险评估
+
+#### 5.3.1 技术风险
+- **数据一致性**: 分布式环境下的数据一致性保证
+- **性能瓶颈**: 大量并发触发器的性能影响
+- **兼容性**: 与现有系统的兼容性问题
+
+#### 5.3.2 缓解措施
+- 采用分布式锁和事务管理保证数据一致性
+- 实施性能测试和容量规划
+- 制定详细的兼容性测试计划
+
+### 5.4 未来展望
+
+#### 5.4.1 功能扩展
+- **AI驱动**: 集成机器学习算法，智能优化触发策略
+- **低代码**: 提供可视化的触发器配置界面
+- **多云支持**: 支持多云环境部署和管理
+- **实时流处理**: 集成流处理引擎，支持实时数据处理
+
+#### 5.4.2 生态建设
+- **开放API**: 提供完整的REST API和SDK
+- **插件市场**: 建设触发器插件生态系统
+- **社区支持**: 建立开发者社区和文档体系
+
+---
+
+**文档版本**: v2.0
+**最后更新**: 2025-01-29
+**作者**: 集成平台开发团队
+**审核**: 技术架构委员会
+
+### 5.5 原有系统核心类图
 
 ```mermaid
 classDiagram
